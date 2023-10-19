@@ -23,6 +23,16 @@ from utils import progress_bar
 from timm.models import create_model
 from utils import load_for_transfer_learning
 
+from models.t2t_vit import *
+from utils import load_for_transfer_learning 
+
+# create model
+model = t2t_vit_19()
+
+# load the pretrained weights
+load_for_transfer_learning(model, '/home/jr371580/Magisterka/T2T/81.9_T2T_ViT_19.pth.tar', 
+use_ema=True, strict=False, num_classes=10)
+
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
@@ -38,7 +48,7 @@ parser.add_argument('--pretrained', action='store_true', default=False,
                     help='Start with pretrained version of specified network (if avail)')
 parser.add_argument('--num-classes', type=int, default=10, metavar='N',
                     help='number of label classes (default: 1000)')
-parser.add_argument('--model', default='T2t_vit_14', type=str, metavar='MODEL',
+parser.add_argument('--model', default='T2t_vit_19', type=str, metavar='MODEL',
                     help='Name of model to train (default: "countception"')
 parser.add_argument('--drop', type=float, default=0.0, metavar='PCT',
                     help='Dropout rate (default: 0.0)')
@@ -114,20 +124,21 @@ testloader = torch.utils.data.DataLoader(
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
 print('==> Building model..')
-net = create_model(
-    args.model,
-    pretrained=args.pretrained,
-    num_classes=args.num_classes,
-    drop_rate=args.drop,
-    drop_connect_rate=args.drop_connect, 
-    drop_path_rate=args.drop_path,
-    drop_block_rate=args.drop_block,
-    global_pool=args.gp,
-    bn_tf=args.bn_tf,
-    bn_momentum=args.bn_momentum,
-    bn_eps=args.bn_eps,
-    checkpoint_path=args.initial_checkpoint,
-    img_size=args.img_size)
+# net = create_model(
+#     args.model,
+#     pretrained=args.pretrained,
+#     num_classes=args.num_classes,
+#     drop_rate=args.drop,
+#     drop_connect_rate=args.drop_connect, 
+#     drop_path_rate=args.drop_path,
+#     drop_block_rate=args.drop_block,
+#     global_pool=args.gp,
+#     bn_tf=args.bn_tf,
+#     bn_momentum=args.bn_momentum,
+#     bn_eps=args.bn_eps,
+#     checkpoint_path=args.initial_checkpoint,
+#     img_size=args.img_size)
+net = model
 
 if args.transfer_learning:
     print('transfer learning, load t2t-vit pretrained model')
@@ -209,18 +220,19 @@ def test(epoch):
     acc = 100.*correct/total
     if acc > best_acc:
         print('Saving..')
-        state = {
-            'net': net.state_dict(),
-            'acc': acc,
-            'epoch': epoch,
-        }
+        # state = {
+        #     'net': net.state_dict(),
+        #     'acc': acc,
+        #     'epoch': epoch,
+        # }
+        # state = net.state_dict()
         if not os.path.isdir(f'checkpoint_{args.dataset}_{args.model}'):
             os.mkdir(f'checkpoint_{args.dataset}_{args.model}')
-        torch.save(state, f'./checkpoint_{args.dataset}_{args.model}/ckpt_{args.lr}_{args.wd}_{acc}.pth')
+        torch.save(net.state_dict(), f'./checkpoint_{args.dataset}_{args.model}/ckpt_{args.lr}_{args.wd}_{acc}.pth')
         best_acc = acc
 
 
-for epoch in range(start_epoch, start_epoch+60):
+for epoch in range(start_epoch, start_epoch+2):
     train(epoch)
     test(epoch)
     scheduler.step()
