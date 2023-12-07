@@ -1,4 +1,5 @@
 import logging
+from typing import Optional, cast
 
 import pytorch_lightning as pl
 import torch
@@ -34,19 +35,21 @@ class Explainer(pl.LightningModule):
 
     def __init__(self, output_dim: int,
                  explainer_head_num_attention_blocks: int,
-                 explainer_head_mlp_layer_ratio: bool, explainer_norm: bool,
+                 explainer_head_mlp_layer_ratio: int, explainer_norm: bool,
                  surrogate: pl.LightningModule, efficiency_lambda,
                  efficiency_class_lambda,
                  freeze_backbone: str,
-                 checkpoint_metric: str or None,
-                 learning_rate: float or None, weight_decay: float or None,
-                 decay_power: str or None, warmup_steps: int or None):
-
+                 checkpoint_metric: Optional[str],
+                 learning_rate: Optional[float],
+                 weight_decay: Optional[float],
+                 decay_power: Optional[str],
+                 warmup_steps: Optional[int]):
         super().__init__()
         self.save_hyperparameters(ignore=['surrogate'])
         self.surrogate = surrogate
 
-        self.__null = None
+        # self.__null = None
+        self.__null: torch.Tensor
 
         self.logger_ = logging.getLogger(__name__)
 
@@ -69,10 +72,10 @@ class Explainer(pl.LightningModule):
         #     self.attention_blocks[0].norm1 = nn.Identity()
 
         # mlps
-        mlps_list = []
-        if self.hparams.explainer_norm and self.hparams.explainer_head_num_attention_blocks > 0:
+        mlps_list = list[nn.Module]()
+        if self.hparams["explainer_norm"] and self.hparams["explainer_head_num_attention_blocks"] > 0:
             mlps_list.append(nn.LayerNorm(self.backbone.num_features))
-            mid_dim = int(self.hparams.explainer_head_mlp_layer_ratio * self.backbone.num_features)
+            mid_dim = int(self.hparams["explainer_head_mlp_layer_ratio"] * self.backbone.num_features)
             mlps_list.append(nn.Linear(
                 in_features=self.backbone.num_features,
                 out_features=mid_dim
@@ -80,7 +83,7 @@ class Explainer(pl.LightningModule):
             mlps_list.append(self.backbone.blocks[0].mlp.act.__class__())
             mlps_list.append(nn.Linear(
                 in_features=mid_dim,
-                out_features=self.hparams.output_dim
+                out_features=self.hparams["output_dim"]
             ))
 
         self.mlps = nn.Sequential(*mlps_list)
@@ -100,19 +103,20 @@ class Explainer(pl.LightningModule):
         # Set up normalization.
 
         # (batch, num_players, num_classes), (batch, 1, num_classes), (batch, 1, num_classes)
-        self.normalization = (lambda pred, grand, null:
-            pred + ((grand - null) - torch.sum(pred, dim=1)).unsqueeze(1) / pred.shape[1]
+        self.normalization = (
+            lambda pred, grand, null:
+                pred + ((grand - null) - torch.sum(pred, dim=1)).unsqueeze(1) / pred.shape[1]
         )
 
         # Set up normalization.
         self.normalization_class = lambda pred: pred - torch.sum(pred, dim=2).unsqueeze(2) / pred.shape[2]
 
         # freeze backbone
-        if self.hparams.freeze_backbone == 'all':
+        if self.hparams["freeze_backbone"] == 'all':
             for key, value in self.backbone.named_parameters():
                 value.requires_grad = False
 
-        elif self.hparams.freeze_backbone == 'except_last_two':
+        elif self.hparams["freeze_backbone"] == 'except_last_two':
             for key, value in self.backbone.named_parameters():
                 value.requires_grad = False
             for key, value in self.backbone.blocks[-2].named_parameters():
@@ -130,7 +134,7 @@ class Explainer(pl.LightningModule):
     def configure_optimizers(self):
         return explainer_utils.set_schedule(self)
 
-    def null(self, images: torch.Tensor or None = None) -> torch.Tensor:
+    def null(self, images: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         calculate or load cached null
 
@@ -145,8 +149,9 @@ class Explainer(pl.LightningModule):
             if images is not None:
                 self.surrogate.eval()
                 with torch.no_grad():
-                    images = images[:, 0:1].to(self.surrogate.device)
-                    masks = torch.zeros(1, self.surrogate.num_players, device=self.surrogate.device)
+                    surrogate_device = cast(torch.device, self.surrogate.device)
+                    images = images[:, 0:1].to(surrogate_device)
+                    masks = torch.zeros(1, cast(int, self.surrogate.num_players), device=surrogate_device)
                     logits = self.surrogate(images, masks)['logits']
                     self.__null = torch.nn.Softmax(dim=1)(logits).to(self.device)
                     # (batch, channel, height, weight) -> (1, num_classes)
@@ -160,8 +165,9 @@ class Explainer(pl.LightningModule):
     def grand(self, images):
         self.surrogate.eval()
         with torch.no_grad():
-            images = images.to(self.surrogate.device)  # (batch, channel, height, weight)
-            masks = torch.ones(images.shape[0], self.surrogate.num_players, device=self.surrogate.device)
+            surrogate_device = cast(torch.device, self.surrogate.device)
+            images = images.to(surrogate_device)  # (batch, channel, height, weight)
+            masks = torch.ones(images.shape[0], cast(int, self.surrogate.num_players), device=surrogate_device)
             logits = self.surrogate(images=images, masks=masks)['logits']  # (batch, num_players)
             print(f'grand shape before Softmax is {logits.shape}')
             logits = self.surrogate(images=images[:, 0:1], masks=masks)['logits']
@@ -191,17 +197,18 @@ class Explainer(pl.LightningModule):
             assert len(multiple_masks) == len(images)
             num_mask_samples = multiple_masks.shape[1]
             assert self.surrogate.num_players == multiple_masks.shape[2]
+            surrogate_device = cast(torch.device, self.surrogate.device)
             # surrogate_values = torch.nn.Softmax(self.surrogate(
-            #     images=images.repeat_interleave(num_mask_samples, dim=0).to(self.surrogate.device),
+            #     images=images.repeat_interleave(num_mask_samples, dim=0).to(surrogate_device),
             #     # (batch, channel, height, weight) -> (batch * num_mask_samples, channel, height, weight)
-            #     masks=multiple_masks.flatten(0, 1).to(self.surrogate.device)
+            #     masks=multiple_masks.flatten(0, 1).to(surrogate_device)
             #     # (batch, num_mask_samples, num_players) -> (batch * num_mask_samples, num_players)
             # )['logits']).reshape(batch_size, num_mask_samples, -1).to(
             #     self.device)  # (batch, num_mask_samples, num_classes)
             surrogate_values = torch.nn.Softmax(dim=1)(self.surrogate(
-                images=images.repeat_interleave(num_mask_samples, dim=0).to(self.surrogate.device),
+                images=images.repeat_interleave(num_mask_samples, dim=0).to(surrogate_device),
                 # (batch, channel, height, weight) -> (batch * num_mask_samples, channel, height, weight)
-                masks=multiple_masks.flatten(0, 1).to(self.surrogate.device)
+                masks=multiple_masks.flatten(0, 1).to(surrogate_device)
                 # (batch, num_mask_samples, num_players) -> (batch * num_mask_samples, num_players)
             )['logits']).reshape(batch_size, num_mask_samples, -1).to(
                 self.device)
@@ -251,11 +258,11 @@ class Explainer(pl.LightningModule):
 
         if self.normalization:
             if surrogate_grand is None:
-                surrogate_grand = self.grand(images).to(
-                    self.device)  # (batch, channel, height, weight) -> (batch, num_classes)
+                # (batch, channel, height, weight) -> (batch, num_classes)
+                surrogate_grand = self.grand(images).to(self.device)
             if surrogate_null is None:
-                surrogate_null = self.null(images).to(
-                    self.device)  # (batch, channel, height, weight) -> (1, num_classes)
+                # (batch, channel, height, weight) -> (1, num_classes)
+                surrogate_null = self.null(images).to(self.device)
             print(f'pred shape is {pred.shape}')
             print(f'grand shape is {surrogate_grand.shape}')
             print(f'null shape is {surrogate_null.shape}')
@@ -296,11 +303,11 @@ class Explainer(pl.LightningModule):
                                                num_players=self.surrogate.num_players,
                                                values_pred=value_pred_approx,
                                                values_target=surrogate_values,
-                                               efficiency_lambda=self.hparams.efficiency_lambda,
+                                               efficiency_lambda=self.hparams["efficiency_lambda"],
                                                value_pred_beforenorm_sum=value_pred_beforenorm_sum,
                                                surrogate_grand=surrogate_grand,
                                                surrogate_null=surrogate_null,
-                                               efficiency_class_lambda=self.hparams.efficiency_class_lambda,
+                                               efficiency_class_lambda=self.hparams["efficiency_class_lambda"],
                                                value_pred_beforenorm_sum_class=value_pred_beforenorm_sum_class,
                                                phase='train')
 
@@ -333,11 +340,11 @@ class Explainer(pl.LightningModule):
                                                num_players=self.surrogate.num_players,
                                                values_pred=value_pred_approx,
                                                values_target=surrogate_values,
-                                               efficiency_lambda=self.hparams.efficiency_lambda,
+                                               efficiency_lambda=self.hparams["efficiency_lambda"],
                                                value_pred_beforenorm_sum=value_pred_beforenorm_sum,
                                                surrogate_grand=surrogate_grand,
                                                surrogate_null=surrogate_null,
-                                               efficiency_class_lambda=self.hparams.efficiency_class_lambda,
+                                               efficiency_class_lambda=self.hparams["efficiency_class_lambda"],
                                                value_pred_beforenorm_sum_class=value_pred_beforenorm_sum_class,
                                                phase='val')
 
@@ -370,11 +377,11 @@ class Explainer(pl.LightningModule):
                                                num_players=self.surrogate.num_players,
                                                values_pred=value_pred_approx,
                                                values_target=surrogate_values,
-                                               efficiency_lambda=self.hparams.efficiency_lambda,
+                                               efficiency_lambda=self.hparams["efficiency_lambda"],
                                                value_pred_beforenorm_sum=value_pred_beforenorm_sum,
                                                surrogate_grand=surrogate_grand,
                                                surrogate_null=surrogate_null,
-                                               efficiency_class_lambda=self.hparams.efficiency_class_lambda,
+                                               efficiency_class_lambda=self.hparams["efficiency_class_lambda"],
                                                value_pred_beforenorm_sum_class=value_pred_beforenorm_sum_class,
                                                phase='test')
         return loss

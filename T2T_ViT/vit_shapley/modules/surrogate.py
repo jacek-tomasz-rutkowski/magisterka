@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 import pytorch_lightning as pl
 import torch
@@ -25,13 +26,17 @@ class Surrogate(pl.LightningModule):
         warmup_steps: parameter for the `cosine` annealing scheduler
     """
 
-    def __init__(self, output_dim: int,
-                 target_model: pl.LightningModule or nn.Module or None,
-                 learning_rate: float or None, weight_decay: float or None,
-                 decay_power: str or None, warmup_steps: int or None):
+    def __init__(self,
+                 output_dim: int,
+                 target_model: Optional[nn.Module],
+                 learning_rate: Optional[float],
+                 weight_decay: Optional[float],
+                 decay_power: Optional[str],
+                 warmup_steps: Optional[int]):
 
         super().__init__()
         self.save_hyperparameters(ignore=['target_model'])
+        self.target_model = target_model
 
         # Backbone initialization
 
@@ -46,7 +51,7 @@ class Surrogate(pl.LightningModule):
         head_in_features = self.backbone.head.in_features
         self.backbone.head = nn.Identity()
 
-        self.head = nn.Linear(head_in_features, self.hparams.output_dim)
+        self.head = nn.Linear(head_in_features, self.hparams["output_dim"])
 
         # Set `num_players` variable.
         self.num_players = 196  # 14 * 14
@@ -80,11 +85,12 @@ class Surrogate(pl.LightningModule):
         return output
 
     def training_step(self, batch, batch_idx):
+        assert self.target_model is not None
         images, masks = batch["images"], batch["masks"]
         logits = self(images, masks)['logits']
-        self.hparams.target_model.eval()
+        self.target_model.eval()
         with torch.no_grad():
-            logits_target = self.hparams.target_model(images.to(self.hparams.target_model.device))['logits'].to(
+            logits_target = self.target_model(images.to(self.target_model.device))['logits'].to(
                 self.device)
         loss = surrogate_utils.compute_metrics(self, logits=logits, logits_target=logits_target, phase='train')
         return loss
@@ -93,11 +99,12 @@ class Surrogate(pl.LightningModule):
         surrogate_utils.epoch_wrapup(self, phase='train')
 
     def validation_step(self, batch, batch_idx):
+        assert self.target_model is not None
         images, masks = batch["images"], batch["masks"]
         logits = self(images, masks)['logits']
-        self.hparams.target_model.eval()
+        self.target_model.eval()
         with torch.no_grad():
-            logits_target = self.hparams.target_model(images.to(self.hparams.target_model.device))['logits'].to(
+            logits_target = self.target_model(images.to(self.target_model.device))['logits'].to(
                 self.device)
         loss = surrogate_utils.compute_metrics(self, logits=logits, logits_target=logits_target, phase='val')
 
@@ -105,11 +112,12 @@ class Surrogate(pl.LightningModule):
         surrogate_utils.epoch_wrapup(self, phase='val')
 
     def test_step(self, batch, batch_idx):
+        assert self.target_model is not None
         images, masks = batch["images"], batch["masks"]
         logits = self(images, masks)['logits']
-        self.hparams.target_model.eval()
+        self.target_model.eval()
         with torch.no_grad():
-            logits_target = self.hparams.target_model(images.to(self.hparams.target_model.device))['logits'].to(
+            logits_target = self.target_model(images.to(self.target_model.device))['logits'].to(
                 self.device)
         loss = surrogate_utils.compute_metrics(self, logits=logits, logits_target=logits_target, phase='test')
 
