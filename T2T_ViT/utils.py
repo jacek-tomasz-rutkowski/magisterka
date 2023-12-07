@@ -4,22 +4,23 @@
 # LICENSE file in the root directory of this file
 # All rights reserved.
 
-''' 
+'''
 - load_for_transfer_learning: load pretrained paramters to model in transfer learning
 - get_mean_and_std: calculate the mean and std value of dataset.
 - msr_init: net parameter initialization.
 - progress_bar: progress bar mimic xlua.progress.
 '''
+import logging
+import math
 import os
 import sys
 import time
 import torch
+from collections import OrderedDict
 
 import torch.nn as nn
 import torch.nn.init as init
-import logging
-import os
-from collections import OrderedDict
+import torch.nn.functional as F
 
 _logger = logging.getLogger(__name__)
 

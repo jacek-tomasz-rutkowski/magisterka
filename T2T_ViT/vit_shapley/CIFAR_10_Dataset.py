@@ -1,13 +1,15 @@
-from torch.utils.data import random_split, Dataset, DataLoader
-import pytorch_lightning as pl
 from typing import Optional
+from pathlib import Path
+
+import pytorch_lightning as pl
 import torchvision
 import numpy as np
+from torch.utils.data import random_split, Dataset, DataLoader
 
 
 class CIFAR_10_Dataset(Dataset):
 
-    def __init__(self, root_path, train=True, download=True):
+    def __init__(self, root_path: Path, train=True, download=True):
         """
         Arguments:
             root_path (string): Directory with all the images.
@@ -16,18 +18,20 @@ class CIFAR_10_Dataset(Dataset):
         self.download = download
 
         transform = torchvision.transforms.Compose([
-                torchvision.transforms.Resize((224, 224)),
-                torchvision.transforms.ToTensor(),
-                torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-            ])
-        self.dataset = torchvision.datasets.CIFAR10(root='./CIFAR_10_data', train=train,
-                                        download=self.download, transform=transform)
-            
-
+            torchvision.transforms.Resize((224, 224)),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
+        self.dataset = torchvision.datasets.CIFAR10(
+            root=root_path,
+            train=train,
+            download=self.download,
+            transform=transform)
 
     @staticmethod
-    def generate_mask(num_players: int, num_mask_samples: int or None = None, paired_mask_samples: bool = True,
-                  mode: str = 'uniform', random_state: np.random.RandomState or None = None) -> np.array:
+    def generate_mask(
+            num_players: int, num_mask_samples: int or None = None, paired_mask_samples: bool = True,
+            mode: str = 'uniform', random_state: np.random.RandomState or None = None) -> np.array:
         """
             Args:
             num_players: the number of players in the coalitional game
@@ -71,42 +75,39 @@ class CIFAR_10_Dataset(Dataset):
         else:
             return masks  # (num_samples, num_masks)
 
-
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.dataset)
 
-    def __getitem__(self, idx):
-
+    def __getitem__(self, idx: int) -> dict:
         image, label = self.dataset[idx]
         sample = {'images': image, 'labels': label, 'masks': self.generate_mask(num_players=196, num_mask_samples=2)}
-
         return sample
 
 
 class CIFAR_10_Datamodule(pl.LightningDataModule):
 
     def __init__(self,):
+        self.root_path = Path("./CIFAR_10_data").resolve()
         super().__init__()
         self.prepare_data_per_node = True
         # self.save_hyperparameters(ignore='some_method')
-    
+
     def prepare_data(self):
         # download
         CIFAR_10_Dataset(
-                root_path="./CIFAR_10_data",
-                train=True,
-                download=True)
+            root_path=self.root_path,
+            train=True,
+            download=True)
         CIFAR_10_Dataset(
-                root_path="./CIFAR_10_data",
-                train=False,
-                download=True)
+            root_path=self.root_path,
+            train=False,
+            download=True)
 
-        
-    def setup(self, stage: Optional[str] = None):
-     
+    def setup(self, stage: Optional[str] = None) -> None:
+        self.prepare_data_per_node = True
         if stage == "fit" or stage is None:
-            train_set_full =  CIFAR_10_Dataset(
-                root_path="./CIFAR_10_data",
+            train_set_full = CIFAR_10_Dataset(
+                root_path=self.root_path,
                 train=True)
             train_set_size = int(len(train_set_full) * 0.9)
             valid_set_size = len(train_set_full) - train_set_size
@@ -115,16 +116,16 @@ class CIFAR_10_Datamodule(pl.LightningDataModule):
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
             self.test = CIFAR_10_Dataset(
-                root_path="./CIFAR_10_data",
+                root_path=self.root_path,
                 train=False)
-            
+
     # define your dataloaders
-    # again, here defined for train, validate and test, not for predict as the project is not there yet. 
+    # again, here defined for train, validate and test, not for predict as the project is not there yet.
     def train_dataloader(self):
-        return DataLoader(self.train, batch_size=32) #, num_workers=8)
+        return DataLoader(self.train, batch_size=32)  # , num_workers=8)
 
     def val_dataloader(self):
-        return DataLoader(self.validate, batch_size=32) #, num_workers=8)
+        return DataLoader(self.validate, batch_size=32)  # , num_workers=8)
 
     def test_dataloader(self):
-        return DataLoader(self.test, batch_size=32) #, num_workers=8)
+        return DataLoader(self.test, batch_size=32)  # , num_workers=8)

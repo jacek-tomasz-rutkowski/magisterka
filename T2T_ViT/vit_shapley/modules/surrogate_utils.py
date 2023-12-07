@@ -1,4 +1,3 @@
-import ipdb
 import torch
 from torch.nn import functional as F
 from torchmetrics import MeanMetric
@@ -9,10 +8,11 @@ from transformers.optimization import AdamW
 def set_schedule(pl_module):
     optimizer = AdamW(params=pl_module.parameters(), lr=pl_module.hparams.learning_rate,
                           weight_decay=pl_module.hparams.weight_decay)
-    
+
     if pl_module.trainer.max_steps is None or pl_module.trainer.max_steps == -1:
-        max_steps = (
-                len(pl_module.trainer.datamodule.train_dataloader()) * pl_module.trainer.max_epochs // pl_module.trainer.accumulate_grad_batches)
+        n_train_batches_per_epoch = len(pl_module.trainer.datamodule.train_dataloader())
+        n_train_batches_total = n_train_batches_per_epoch * pl_module.trainer.max_epochs
+        max_steps = n_train_batches_total // pl_module.trainer.accumulate_grad_batches
     else:
         max_steps = pl_module.trainer.max_steps
 
@@ -49,7 +49,7 @@ def compute_metrics(pl_module, logits, logits_target, phase):
                         target=torch.softmax(logits_target, dim=1),
                         reduction='batchmean',
                         log_target=False)
-    
+
     loss = getattr(pl_module, f"{phase}_loss")(loss)
 
     pl_module.log(f"{phase}/loss", loss)

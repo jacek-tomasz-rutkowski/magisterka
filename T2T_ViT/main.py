@@ -17,13 +17,11 @@ import logging
 from collections import OrderedDict
 from contextlib import suppress
 from datetime import datetime
-import models
 
 import torch
 import torch.nn as nn
 import torchvision.utils
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
-
 from timm.data import Dataset, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
 from timm.models import load_checkpoint, create_model, resume_checkpoint, convert_splitbn_model
 from timm.utils import *
@@ -31,6 +29,9 @@ from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy, JsdCro
 from timm.optim import create_optimizer
 from timm.scheduler import create_scheduler
 from timm.utils import ApexScaler, NativeScaler
+
+import models
+
 
 torch.backends.cudnn.benchmark = True
 _logger = logging.getLogger('train')
@@ -526,7 +527,7 @@ def main():
     eval_metric = args.eval_metric
     best_metric = None
     best_epoch = None
-    
+
     if args.eval_checkpoint:  # evaluate the model
         load_checkpoint(model, args.eval_checkpoint, args.model_ema)
         val_metrics = validate(model, loader_eval, validate_loss_fn, args)

@@ -1,0 +1,33 @@
+[tool.mypy]
+strict = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_column_numbers = true
+strict_equality = true
+strict_concatenate = true
+implicit_reexport = false
+# We don't use namespace packages, but this is needed to enable explicit_package_bases.
+# namespace_packages = true
+# Needed so that mypy doesn't report two files with the same name as duplicate modules.
+# explicit_package_bases = true
+# follow_imports = silent
+
+
+[tool.ruff]
+select = ["W", "E", "F"]
+line-length = 100
+target-version = "py310"
+
+[tool.black]
+line-length = 100
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
