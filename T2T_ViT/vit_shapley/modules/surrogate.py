@@ -31,11 +31,11 @@ class Surrogate(pl.LightningModule):
                  decay_power: str or None, warmup_steps: int or None):
 
         super().__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=['target_model'])
 
         # Backbone initialization
         
-        self.backbone = t2t_vit_14(num_classes=10)
+        self.backbone = t2t_vit_19(num_classes=10)
         # state_dict = load_state_dict(self.backbone, checkpoint_path='../models/81.5_T2T_ViT_14.pth.tar', 
         #                             num_classes=10)
         # self.backbone.load_state_dict(state_dict, strict=False)
@@ -50,7 +50,7 @@ class Surrogate(pl.LightningModule):
 
         # Set `num_players` variable.
         
-        self.num_players = 196      
+        self.num_players = 196  
 
         # Set up modules for calculating metric
         surrogate_utils.set_metrics(self)
@@ -61,14 +61,21 @@ class Surrogate(pl.LightningModule):
     def forward(self, images, masks):
         assert masks.shape[-1] == self.num_players
 
+        print(f'images shape is {images.shape}')
+        print(f'masks shape is {masks.shape}')
         if images.shape[2:4] == (224, 224) and masks.shape[1] == 196:
             masks = masks.reshape(-1, 14, 14)
             masks = torch.repeat_interleave(torch.repeat_interleave(masks, 16, dim=2), 16, dim=1)
+            # masks = masks.reshape(-1, 4, 4)
+            # masks = torch.repeat_interleave(torch.repeat_interleave(masks, 56, dim=2), 56, dim=1)
         else:
             raise NotImplementedError
         images_masked = images * masks.unsqueeze(1)
+        # print(f'masks.unsqueeze(1) shape is {masks.unsqueeze(1).shape}')
+        # print(f'images_masked shape is {images_masked.shape}')
         out = self.backbone(images_masked)
         logits = self.head(out)
+        # print(f'logits from surrogate is {logits.shape}')
         output = {'logits': logits}
 
         return output

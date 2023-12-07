@@ -81,14 +81,22 @@ class T2T_module(nn.Module):
 
     def forward(self, x):
         # step0: soft split
+        print(f'x shape begin: {x.shape}')
         x = self.soft_split0(x).transpose(1, 2)
+
+        print(f'x shape after soft_split0: {x.shape}')
 
         # iteration1: re-structurization/reconstruction
         x = self.attention1(x)
+        print(f'x shape after attention: {x.shape}')
         B, new_HW, C = x.shape
         x = x.transpose(1,2).reshape(B, C, int(np.sqrt(new_HW)), int(np.sqrt(new_HW)))
+
+        print(f'x shape after transpose: {x.shape}')
         # iteration1: soft split
         x = self.soft_split1(x).transpose(1, 2)
+
+        print(f'x shape after soft_split1: {x.shape}')
 
         # iteration2: re-structurization/reconstruction
         x = self.attention2(x)
@@ -115,7 +123,8 @@ class T2T_ViT(nn.Module):
         num_patches = self.tokens_to_token.num_patches
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.pos_embed = nn.Parameter(data=get_sinusoid_encoding(n_position=num_patches + 1, d_hid=embed_dim), requires_grad=False)
+        self.pos_embed = nn.Parameter(data=get_sinusoid_encoding(n_position=num_patches, d_hid=embed_dim), requires_grad=False)
+        # wcześniej było n_position=num_patches + 1
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
@@ -155,9 +164,8 @@ class T2T_ViT(nn.Module):
     def forward_features(self, x):
         B = x.shape[0]
         x = self.tokens_to_token(x)
-
         cls_tokens = self.cls_token.expand(B, -1, -1)
-        x = torch.cat((cls_tokens, x), dim=1)
+        # x = torch.cat((cls_tokens, x), dim=1) #to wprowadza zamieszanie
         x = x + self.pos_embed
         x = self.pos_drop(x)
 
@@ -165,7 +173,7 @@ class T2T_ViT(nn.Module):
             x = blk(x)
 
         x = self.norm(x)
-        return x[:, 0]
+        return x #[:, 0]
 
     def forward(self, x):
         x = self.forward_features(x)

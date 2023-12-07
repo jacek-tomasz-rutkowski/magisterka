@@ -7,20 +7,21 @@ import numpy as np
 
 class CIFAR_10_Dataset(Dataset):
 
-    def __init__(self, root_dir, train=True):
+    def __init__(self, root_path, train=True, download=True):
         """
         Arguments:
-            root_dir (string): Directory with all the images.
+            root_path (string): Directory with all the images.
         """
-        self.root_dir = root_dir
+        self.root_path = root_path
+        self.download = download
 
         transform = torchvision.transforms.Compose([
-                torchvision.transforms.Resize(args.img_size),
+                torchvision.transforms.Resize((224, 224)),
                 torchvision.transforms.ToTensor(),
                 torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
             ])
         self.dataset = torchvision.datasets.CIFAR10(root='./CIFAR_10_data', train=train,
-                                        download=True, transform=transform)
+                                        download=self.download, transform=transform)
             
 
 
@@ -72,12 +73,12 @@ class CIFAR_10_Dataset(Dataset):
 
 
     def __len__(self):
-        return len(self.landmarks_frame)
+        return len(self.dataset)
 
     def __getitem__(self, idx):
 
-        image = self.dataset[idx]
-        sample = {'image': image, 'masks': generate_mask(num_players=9, num_mask_samples=2)}
+        image, label = self.dataset[idx]
+        sample = {'images': image, 'labels': label, 'masks': self.generate_mask(num_players=196, num_mask_samples=2)}
 
         return sample
 
@@ -85,7 +86,21 @@ class CIFAR_10_Dataset(Dataset):
 class CIFAR_10_Datamodule(pl.LightningDataModule):
 
     def __init__(self,):
-        super(CIFAR_10_Datamodule).__init__()
+        super().__init__()
+        self.prepare_data_per_node = True
+        # self.save_hyperparameters(ignore='some_method')
+    
+    def prepare_data(self):
+        # download
+        CIFAR_10_Dataset(
+                root_path="./CIFAR_10_data",
+                train=True,
+                download=True)
+        CIFAR_10_Dataset(
+                root_path="./CIFAR_10_data",
+                train=False,
+                download=True)
+
         
     def setup(self, stage: Optional[str] = None):
      
@@ -106,10 +121,10 @@ class CIFAR_10_Datamodule(pl.LightningDataModule):
     # define your dataloaders
     # again, here defined for train, validate and test, not for predict as the project is not there yet. 
     def train_dataloader(self):
-        return DataLoader(self.train, batch_size=32, num_workers=8)
+        return DataLoader(self.train, batch_size=32) #, num_workers=8)
 
     def val_dataloader(self):
-        return DataLoader(self.validate, batch_size=32, num_workers=8)
+        return DataLoader(self.validate, batch_size=32) #, num_workers=8)
 
     def test_dataloader(self):
-        return DataLoader(self.test, batch_size=32, num_workers=8)
+        return DataLoader(self.test, batch_size=32) #, num_workers=8)
