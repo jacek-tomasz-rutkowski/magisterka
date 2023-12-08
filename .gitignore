@@ -1,7 +1,7 @@
-T2T_ViT/checkpoint_cifar10_T2t_vit_14/
-T2T_ViT/vit_shapley/CIFAR_10_data/
-T2T_ViT/CIFAR_10_data/
+.vscode
+__pycache__
+.mypy_cache
 T2T_ViT/lightning_logs/
-T2T_ViT/models/__pycache__/
-T2T_ViT/vit_shapley/__pycache__/
-T2T_ViT/vit_shapley/modules/__pycache__/
+T2T-ViT/checkpoint_cifar10_T2t_vit_14/
+T2T-ViT/vit_shapley/CIFAR_10_data/
+T2T_ViT/CIFAR_10_data/
