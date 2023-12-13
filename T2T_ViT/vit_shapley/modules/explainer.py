@@ -394,8 +394,7 @@ if __name__ == '__main__':
 
     print(1)
     with torch.no_grad():
-        print('Próba mikrofonu')
-        out = surrogate(torch.rand(1, 3, 224, 224), torch.ones(1, 196))
+        out = surrogate(torch.rand(32, 3, 224, 224), torch.ones(1, 196))
         print(f'out is {out.keys()}, {out["logits"].shape}!')
 
     CIFAR_10 = CIFAR_10_Datamodule()

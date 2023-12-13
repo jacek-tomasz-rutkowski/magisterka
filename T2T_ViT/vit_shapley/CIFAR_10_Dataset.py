@@ -118,10 +118,10 @@ class CIFAR_10_Datamodule(pl.LightningDataModule):
     # define your dataloaders
     # again, here defined for train, validate and test, not for predict as the project is not there yet.
     def train_dataloader(self):
-        return DataLoader(self.train, batch_size=32, num_workers=255)
+        return DataLoader(self.train, batch_size=32, num_workers=0)
 
     def val_dataloader(self):
-        return DataLoader(self.validate, batch_size=32, num_workers=255)
+        return DataLoader(self.validate, batch_size=32, num_workers=0)
 
     def test_dataloader(self):
-        return DataLoader(self.test, batch_size=32, num_workers=255)
+        return DataLoader(self.test, batch_size=32, num_workers=0)
