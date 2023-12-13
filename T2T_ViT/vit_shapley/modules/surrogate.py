@@ -65,8 +65,6 @@ class Surrogate(pl.LightningModule):
     def forward(self, images, masks):
         assert masks.shape[-1] == self.num_players
 
-        print(f'images shape is {images.shape}')
-        print(f'masks shape is {masks.shape}')
         if images.shape[2:4] == (224, 224) and masks.shape[1] == 196:
             masks = masks.reshape(-1, 14, 14)
             masks = torch.repeat_interleave(torch.repeat_interleave(masks, 16, dim=2), 16, dim=1)
@@ -78,8 +76,8 @@ class Surrogate(pl.LightningModule):
         # print(f'masks.unsqueeze(1) shape is {masks.unsqueeze(1).shape}')
         # print(f'images_masked shape is {images_masked.shape}')
         out = self.backbone(images_masked)
-        logits = self.head(out)
-        # print(f'logits from surrogate is {logits.shape}')
+        logits = self.head(out)[:,0].unsqueeze(1)
+        
         output = {'logits': logits}
 
         return output

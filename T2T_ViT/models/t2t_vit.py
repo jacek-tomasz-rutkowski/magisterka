@@ -81,22 +81,22 @@ class T2T_module(nn.Module):
 
     def forward(self, x):
         # step0: soft split
-        print(f'x shape begin: {x.shape}')
+        # print(f'x shape begin: {x.shape}')
         x = self.soft_split0(x).transpose(1, 2)
 
-        print(f'x shape after soft_split0: {x.shape}')
+        # print(f'x shape after soft_split0: {x.shape}')
 
         # iteration1: re-structurization/reconstruction
         x = self.attention1(x)
-        print(f'x shape after attention: {x.shape}')
+        # print(f'x shape after attention: {x.shape}')
         B, new_HW, C = x.shape
         x = x.transpose(1,2).reshape(B, C, int(np.sqrt(new_HW)), int(np.sqrt(new_HW)))
 
-        print(f'x shape after transpose: {x.shape}')
+        # print(f'x shape after transpose: {x.shape}')
         # iteration1: soft split
         x = self.soft_split1(x).transpose(1, 2)
 
-        print(f'x shape after soft_split1: {x.shape}')
+        # print(f'x shape after soft_split1: {x.shape}')
 
         # iteration2: re-structurization/reconstruction
         x = self.attention2(x)
