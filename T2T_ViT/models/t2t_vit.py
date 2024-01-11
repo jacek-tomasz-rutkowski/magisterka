@@ -173,7 +173,8 @@ class T2T_ViT(nn.Module):
             x = blk(x)
 
         x = self.norm(x)
-        return x #[:, 0]
+        return x # [:, 0]
+    # with or without [:,0]
 
     def forward(self, x):
         x = self.forward_features(x)

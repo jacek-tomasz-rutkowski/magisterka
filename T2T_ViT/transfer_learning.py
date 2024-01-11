@@ -21,22 +21,21 @@ from models import *
 from timm.models import *
 from utils import progress_bar
 from timm.models import create_model
-from utils import load_for_transfer_learning
 
 from models.t2t_vit import *
 from utils import load_for_transfer_learning
 
 # create model
-model = t2t_vit_19()
+model = t2t_vit_14(num_classes=10)
 
 # load the pretrained weights
-load_for_transfer_learning(
-    model,
-    "/home/jr371580/Magisterka/T2T/81.9_T2T_ViT_19.pth.tar",
-    use_ema=True,
-    strict=False,
-    num_classes=10,
-)
+# load_for_transfer_learning(
+#     model,
+#     "./pretrained_models/T2T_ViT_14_83.3.pth.tar",
+#     use_ema=True,
+#     strict=False,
+#     num_classes=10,
+# )
 
 
 parser = argparse.ArgumentParser(description="PyTorch CIFAR10/CIFAR100 Training")
@@ -61,7 +60,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--model",
-    default="T2t_vit_19",
+    default="T2t_vit_14",
     type=str,
     metavar="MODEL",
     help='Name of model to train (default: "countception"',
@@ -116,11 +115,9 @@ parser.add_argument(
     help="Initialize model from this checkpoint (default: none)",
 )
 # Transfer learning
-parser.add_argument("--transfer-learning", default=False, help="Enable transfer learning")
-parser.add_argument(
-    "--transfer-model",
+parser.add_argument("--transfer-learning", default=True, help="Enable transfer learning")
+parser.add_argument("--transfer-model", default='./pretrained_models/T2T_ViT_14_83.3.pth.tar',
     type=str,
-    default=None,
     help="Path to pretrained model for transfer learning",
 )
 parser.add_argument(
@@ -176,8 +173,8 @@ elif args.dataset == "cifar100":
 else:
     print("Please use cifar10 or cifar100 dataset.")
 
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.b, shuffle=True, num_workers=8)
-testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=8)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.b, shuffle=True, num_workers=0)
+testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=0)
 
 print(f"learning rate:{args.lr}, weight decay: {args.wd}")
 # create T2T-ViT Model
@@ -196,13 +193,16 @@ print("==> Building model..")
 #     bn_eps=args.bn_eps,
 #     checkpoint_path=args.initial_checkpoint,
 #     img_size=args.img_size)
+
 net = model
 
 if args.transfer_learning:
     print("transfer learning, load t2t-vit pretrained model")
     load_for_transfer_learning(
         net, args.transfer_model, use_ema=True, strict=False, num_classes=args.num_classes
+
     )
+
 
 net = net.to(device)
 if device == "cuda":
@@ -245,7 +245,9 @@ def train(epoch):
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
-        outputs = net(inputs)
+        outputs = net(inputs)[:,0]
+        # it was net(inputs) before, but we need output of
+        # shape [128, 196, 10] for surrogate model
         loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
@@ -272,7 +274,8 @@ def test(epoch):
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
-            outputs = net(inputs)
+            outputs = net(inputs)[:,0]
+            # it was outputs = net(inputs)
             loss = criterion(outputs, targets)
 
             test_loss += loss.item()

@@ -50,7 +50,7 @@ def resize_pos_embed(posemb: torch.Tensor, posemb_new: torch.Tensor) -> torch.Te
     return posemb
 
 
-def load_state_dict(checkpoint_path, model, use_ema=False, num_classes=1000, del_posemb=False):
+def load_state_dict(checkpoint_path, model, use_ema=False, num_classes=1000, del_posemb=True):
     if checkpoint_path and os.path.isfile(checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location='cpu')
         state_dict_key = 'state_dict'
@@ -79,6 +79,7 @@ def load_state_dict(checkpoint_path, model, use_ema=False, num_classes=1000, del
         if model.pos_embed.shape != old_posemb.shape:  # need resize the position embedding by interpolate
             new_posemb = resize_pos_embed(old_posemb, model.pos_embed)
             state_dict['pos_embed'] = new_posemb
+            print(f'new_posemb shape is {new_posemb.shape}')
 
         return state_dict
     else:
@@ -93,7 +94,7 @@ def load_for_transfer_learning(model, checkpoint_path, use_ema=False, strict=Tru
 
 def get_mean_and_std(dataset: Dataset) -> tuple[torch.Tensor, torch.Tensor]:
     '''Compute the mean and std value of dataset, as a pair of tensors of shape (3,).'''
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, num_workers=2)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, num_workers=0)
     mean = torch.zeros(3)
     std = torch.zeros(3)
     print('==> Computing mean and std..')
@@ -122,8 +123,8 @@ def init_params(net):
                 init.constant(m.bias, 0)
 
 
-_, term_width_str = os.popen('stty size', 'r').read().split()
-term_width = int(term_width_str)
+# _, term_width_str = os.popen('stty size', 'r').read().split()
+# term_width = int(term_width_str)
 
 TOTAL_BAR_LENGTH = 65.
 last_time = time.time()
@@ -159,12 +160,12 @@ def progress_bar(current, total, msg=None):
 
     msg = ''.join(L)
     sys.stdout.write(msg)
-    for i in range(term_width - int(TOTAL_BAR_LENGTH) - len(msg) - 3):
-        sys.stdout.write(' ')
+    # for i in range(term_width - int(TOTAL_BAR_LENGTH) - len(msg) - 3):
+    #     sys.stdout.write(' ')
 
-    # Go back to the center of the bar.
-    for i in range(term_width - int(TOTAL_BAR_LENGTH / 2) + 2):
-        sys.stdout.write('\b')
+    # # Go back to the center of the bar.
+    # for i in range(term_width - int(TOTAL_BAR_LENGTH / 2) + 2):
+    #     sys.stdout.write('\b')
     sys.stdout.write(' %d/%d ' % (current + 1, total))
 
     if current < total - 1:

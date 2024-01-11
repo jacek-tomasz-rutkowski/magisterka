@@ -414,6 +414,7 @@ if __name__ == '__main__':
         warmup_steps=None
     )
 
-    trainer = pl.Trainer(max_epochs=2, logger=False)
+    trainer = pl.Trainer(max_epochs=2, default_root_dir="./checkpoints")# logger=False)
     trainer.fit(explainer, CIFAR_10)
+    
     print(1)
