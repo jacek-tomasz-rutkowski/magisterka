@@ -7,3 +7,4 @@ T2T-ViT/vit_shapley/CIFAR_10_data/
 T2T_ViT/CIFAR_10_data/
 T2T_ViT/pretrained_models/
 T2T_ViT/__pycache__/utils.cpython-311.pyc
+T2T_ViT/vit_shapley/modules/checkpoints_surrogate

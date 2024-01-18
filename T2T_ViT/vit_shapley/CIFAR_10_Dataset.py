@@ -9,11 +9,15 @@ from torch.utils.data import random_split, Dataset, DataLoader
 
 class CIFAR_10_Dataset(Dataset):
     """CIFAR-10 dataset, but returns normalized tensors of shape (224, 224, 3)."""
-    def __init__(self, root_path: Path, train: bool = True, download: bool = True):
+    def __init__(self, num_players: int, num_mask_samples: int, paired_mask_samples: bool,
+                 root_path: Path, train: bool = True, download: bool = True):
         """
         Args:
             root_path: Directory with all the images (will be downloaded if not present).
         """
+        self.num_players=num_players
+        self.num_mask_samples=num_mask_samples
+        self.paired_mask_samples=paired_mask_samples
         self.root_path = root_path
         self.shape = (224, 224, 3)
         transform = torchvision.transforms.Compose([
@@ -82,38 +86,60 @@ class CIFAR_10_Dataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict:
         image, label = self.dataset[idx]
-        sample = {'images': image, 'labels': label, 'masks': self.generate_mask(num_players=196, num_mask_samples=2)}
+        sample = {'images': image, 'labels': label, 'masks': 
+                  self.generate_mask(num_players=self.num_players, 
+                                     num_mask_samples=self.num_mask_samples,
+                                     paired_mask_samples=self.paired_mask_samples)}
         return sample
 
 
 class CIFAR_10_Datamodule(pl.LightningDataModule):
 
-    def __init__(self):
+    def __init__(self, num_players,
+                 num_mask_samples,
+                 paired_mask_samples):
         self.root_path = Path("./CIFAR_10_data").resolve()
         super().__init__()
         self.prepare_data_per_node = True
+        self.num_players=num_players
+        self.num_mask_samples=num_mask_samples
+        self.paired_mask_samples=paired_mask_samples
 
     def prepare_data(self):
         # download
         CIFAR_10_Dataset(
+            num_players=self.num_players,
+            num_mask_samples=self.num_mask_samples,
+            paired_mask_samples=self.paired_mask_samples,
             root_path=self.root_path,
             train=True,
             download=True)
         CIFAR_10_Dataset(
+            num_players=self.num_players,
+            num_mask_samples=self.num_mask_samples,
+            paired_mask_samples=self.paired_mask_samples,
             root_path=self.root_path,
             train=False,
             download=True)
 
     def setup(self, stage: Optional[str] = None) -> None:
         if stage == "fit" or stage is None:
-            train_set_full = CIFAR_10_Dataset(root_path=self.root_path, train=True)
+            train_set_full = CIFAR_10_Dataset(num_players=self.num_players,
+                                    num_mask_samples=self.num_mask_samples,
+                                    paired_mask_samples=self.paired_mask_samples,
+                                    root_path=self.root_path, 
+                                    train=True)
             train_set_size = int(len(train_set_full) * 0.9)
             valid_set_size = len(train_set_full) - train_set_size
             self.train, self.validate = random_split(train_set_full, [train_set_size, valid_set_size])
 
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
-            self.test = CIFAR_10_Dataset(root_path=self.root_path, train=False)
+            self.test = CIFAR_10_Dataset(num_players=self.num_players,
+                                    num_mask_samples=self.num_mask_samples,
+                                    paired_mask_samples=self.paired_mask_samples,
+                                    root_path=self.root_path, 
+                                    train=False)
 
     # define your dataloaders
     # again, here defined for train, validate and test, not for predict as the project is not there yet.

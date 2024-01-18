@@ -37,10 +37,7 @@ def epoch_wrapup(pl_module, phase):
     getattr(pl_module, f"{phase}_loss").reset()
     pl_module.log(f"{phase}/epoch_loss", loss)
 
-    if pl_module.hparams.checkpoint_metric == "loss":
-        checkpoint_metric = -loss
-    else:
-        raise NotImplementedError("Not supported checkpoint metric")
+    checkpoint_metric = -loss
     pl_module.log(f"{phase}/checkpoint_metric", checkpoint_metric)
 
 

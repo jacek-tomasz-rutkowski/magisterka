@@ -127,6 +127,8 @@ class T2T_ViT(nn.Module):
         # wcześniej było n_position=num_patches + 1
         self.pos_drop = nn.Dropout(p=drop_rate)
 
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         self.blocks = nn.ModuleList([
             Block(

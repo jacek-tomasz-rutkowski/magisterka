@@ -10,7 +10,8 @@ from torchvision import models as cnn_models
 import models.t2t_vit
 from vit_shapley.modules import surrogate_utils
 from utils import load_for_transfer_learning
-
+from vit_shapley.CIFAR_10_Dataset import CIFAR_10_Dataset, CIFAR_10_Datamodule
+from collections import OrderedDict
 
 class Surrogate(pl.LightningModule):
     """
@@ -40,7 +41,7 @@ class Surrogate(pl.LightningModule):
 
         # Backbone initialization
 
-        self.backbone = models.t2t_vit.t2t_vit_19(num_classes=10)
+        self.backbone = models.t2t_vit.t2t_vit_14(num_classes=10)
         # state_dict = load_state_dict(self.backbone, checkpoint_path='../models/81.5_T2T_ViT_14.pth.tar',
         #                             num_classes=10)
         # self.backbone.load_state_dict(state_dict, strict=False)
@@ -65,59 +66,98 @@ class Surrogate(pl.LightningModule):
     def forward(self, images, masks):
         assert masks.shape[-1] == self.num_players
 
+
         if images.shape[2:4] == (224, 224) and masks.shape[1] == 196:
             masks = masks.reshape(-1, 14, 14)
             masks = torch.repeat_interleave(torch.repeat_interleave(masks, 16, dim=2), 16, dim=1)
             # masks = masks.reshape(-1, 4, 4)
             # masks = torch.repeat_interleave(torch.repeat_interleave(masks, 56, dim=2), 56, dim=1)
+
+        elif images.shape[2:4] == (224, 224) and masks.shape[2] == 196:
+
+            masks = masks[:,0]
+            masks = masks.reshape(-1, 14, 14)
+            masks = torch.repeat_interleave(torch.repeat_interleave(masks, 16, dim=2), 16, dim=1)
+
         else:
             raise NotImplementedError
-        images_masked = images * masks.unsqueeze(1)
-        # print(f'masks.unsqueeze(1) shape is {masks.unsqueeze(1).shape}')
-        # print(f'images_masked shape is {images_masked.shape}')
+        
+        
+        images_masked = images * masks.unsqueeze(1)    
         out = self.backbone(images_masked)
         logits = self.head(out)[:,0].unsqueeze(1)
         
-        output = {'logits': logits}
+        # output = {'logits': logits}
 
-        return output
+        return logits
 
     def training_step(self, batch, batch_idx):
         assert self.target_model is not None
         images, masks = batch["images"], batch["masks"]
-        logits = self(images, masks)['logits']
+
+        logits = self(images, masks) # ['logits']
         self.target_model.eval()
         with torch.no_grad():
-            logits_target = self.target_model(images.to(self.target_model.device))['logits'].to(
-                self.device)
+            logits_target = self.target_model(images.to(self.target_model.device)).to(
+                self.device) #['logits']
         loss = surrogate_utils.compute_metrics(self, logits=logits, logits_target=logits_target, phase='train')
         return loss
 
-    def training_epoch_end(self, outs):
+    def on_training_epoch_end(self):
         surrogate_utils.epoch_wrapup(self, phase='train')
 
     def validation_step(self, batch, batch_idx):
         assert self.target_model is not None
         images, masks = batch["images"], batch["masks"]
-        logits = self(images, masks)['logits']
+        logits = self(images, masks) #['logits']
         self.target_model.eval()
         with torch.no_grad():
-            logits_target = self.target_model(images.to(self.target_model.device))['logits'].to(
-                self.device)
+            logits_target = self.target_model(images.to(self.target_model.device)).to(
+                self.device) #['logits']
         loss = surrogate_utils.compute_metrics(self, logits=logits, logits_target=logits_target, phase='val')
 
-    def validation_epoch_end(self, outs):
+    def on_validation_epoch_end(self,):
         surrogate_utils.epoch_wrapup(self, phase='val')
 
     def test_step(self, batch, batch_idx):
         assert self.target_model is not None
         images, masks = batch["images"], batch["masks"]
-        logits = self(images, masks)['logits']
+        logits = self(images, masks) # ['logits']
         self.target_model.eval()
         with torch.no_grad():
-            logits_target = self.target_model(images.to(self.target_model.device))['logits'].to(
-                self.device)
+            logits_target = self.target_model(images.to(self.target_model.device)).to(
+                self.device) #['logits']
         loss = surrogate_utils.compute_metrics(self, logits=logits, logits_target=logits_target, phase='test')
 
-    def test_epoch_end(self, outs):
+    def on_test_epoch_end(self):
         surrogate_utils.epoch_wrapup(self, phase='test')
+
+
+
+if __name__ == "__main__":
+    target_model = models.t2t_vit.t2t_vit_14(num_classes=10)
+
+    checkpoint = torch.load('../../checkpoint_cifar10_T2t_vit_14/ckpt_0.01_0.0005_92.51.pth')
+
+    new_state_dict = OrderedDict()
+
+    for k, v in checkpoint.items():
+        # strip `module.` prefix
+        name = k[7:] if k.startswith('module') else k
+        new_state_dict[name] = v
+
+    state_dict = new_state_dict
+
+    target_model.load_state_dict(state_dict)
+
+    surrogate = Surrogate(output_dim=10,
+                          target_model=target_model,
+                          learning_rate=1e-5,
+                          weight_decay=0.0,
+                          decay_power='cosine',
+                          warmup_steps=2)
+
+    CIFAR_10 = CIFAR_10_Datamodule(num_players=196, num_mask_samples=1, paired_mask_samples=False)
+
+    trainer = pl.Trainer(max_epochs=50, default_root_dir="./checkpoints_surrogate")# logger=False)
+    trainer.fit(surrogate, CIFAR_10)

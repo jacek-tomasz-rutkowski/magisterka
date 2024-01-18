@@ -152,7 +152,7 @@ class Explainer(pl.LightningModule):
                     surrogate_device = cast(torch.device, self.surrogate.device)
                     images = images.to(surrogate_device)
                     masks = torch.zeros(1, cast(int, self.surrogate.num_players), device=surrogate_device)
-                    logits = self.surrogate(images, masks)['logits']
+                    logits = self.surrogate(images, masks) #['logits']
                     self.__null = torch.nn.Softmax(dim=1)(logits).to(self.device)[:,0]
                     # (batch, channel, height, weight) -> (1, num_classes)
                     # było images[0:1] lub images[:,0]
@@ -168,7 +168,7 @@ class Explainer(pl.LightningModule):
             surrogate_device = cast(torch.device, self.surrogate.device)
             images = images.to(surrogate_device)  # (batch, channel, height, weight)
             masks = torch.ones(images.shape[0], cast(int, self.surrogate.num_players), device=surrogate_device)
-            logits = self.surrogate(images=images, masks=masks)['logits']  # (batch, num_players)
+            logits = self.surrogate(images=images, masks=masks) #['logits']  # (batch, num_players)
             # logits = self.surrogate(images=images[:, 0:1], masks=masks)['logits']
             grand = torch.nn.Softmax(dim=1)(logits).to(self.device)[:,0]
             # (1, num_classes)
@@ -201,9 +201,9 @@ class Explainer(pl.LightningModule):
                 # (batch, channel, height, weight) -> (batch * num_mask_samples, channel, height, weight)
                 masks=multiple_masks.flatten(0, 1).to(surrogate_device)
                 # (batch, num_mask_samples, num_players) -> (batch * num_mask_samples, num_players)
-            )['logits']).reshape(batch_size, num_mask_samples, -1).to(
-                self.device)
-
+            )).reshape(batch_size, num_mask_samples, -1).to(
+                self.device)    # ['logits']
+            
         return surrogate_values
 
     def forward(self, images, surrogate_grand=None, surrogate_null=None):
@@ -397,7 +397,7 @@ if __name__ == '__main__':
         out = surrogate(torch.rand(32, 3, 224, 224), torch.ones(1, 196))
         print(f'out is {out.keys()}, {out["logits"].shape}!')
 
-    CIFAR_10 = CIFAR_10_Datamodule()
+    CIFAR_10 = CIFAR_10_Datamodule(num_players=196, num_mask_samples=2)
     explainer = Explainer(
         output_dim=10,
         explainer_head_num_attention_blocks=1,
