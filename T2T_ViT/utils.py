@@ -50,7 +50,7 @@ def resize_pos_embed(posemb: torch.Tensor, posemb_new: torch.Tensor) -> torch.Te
     return posemb
 
 
-def load_state_dict(checkpoint_path, model, use_ema=False, num_classes=1000, del_posemb=True):
+def load_state_dict(checkpoint_path, model, use_ema=False, num_classes=1000, del_posemb=False):
     if checkpoint_path and os.path.isfile(checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location='cpu')
         state_dict_key = 'state_dict'
@@ -76,10 +76,10 @@ def load_state_dict(checkpoint_path, model, use_ema=False, num_classes=1000, del
             del state_dict['pos_embed']
 
         old_posemb = state_dict['pos_embed']
+
         if model.pos_embed.shape != old_posemb.shape:  # need resize the position embedding by interpolate
             new_posemb = resize_pos_embed(old_posemb, model.pos_embed)
             state_dict['pos_embed'] = new_posemb
-            print(f'new_posemb shape is {new_posemb.shape}')
 
         return state_dict
     else:

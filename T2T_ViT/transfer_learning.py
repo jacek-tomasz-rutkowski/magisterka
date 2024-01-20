@@ -116,7 +116,7 @@ parser.add_argument(
 )
 # Transfer learning
 parser.add_argument("--transfer-learning", default=True, help="Enable transfer learning")
-parser.add_argument("--transfer-model", default='./pretrained_models/T2T_ViT_14_83.3.pth.tar',
+parser.add_argument("--transfer-model", default='./pretrained_models/81.5_T2T_ViT_14.pth.tar',
     type=str,
     help="Path to pretrained model for transfer learning",
 )
@@ -309,7 +309,9 @@ def test(epoch):
         best_acc = acc
 
 
-for epoch in range(start_epoch, start_epoch + 2):
-    train(epoch)
-    test(epoch)
-    scheduler.step()
+if __name__ == "__main__":
+
+    for epoch in range(start_epoch, start_epoch + 20):
+        train(epoch)
+        test(epoch)
+        scheduler.step()

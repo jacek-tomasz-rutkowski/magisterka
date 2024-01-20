@@ -13,9 +13,9 @@ from timm.models.helpers import load_pretrained
 from timm.models.registry import register_model
 from timm.models.layers import trunc_normal_
 import numpy as np
-from .token_transformer import Token_transformer
-from .token_performer import Token_performer
-from .transformer_block import Block, get_sinusoid_encoding
+from models.token_transformer import Token_transformer
+from models.token_performer import Token_performer
+from models.transformer_block import Block, get_sinusoid_encoding
 
 def _cfg(url='', **kwargs):
     return {
@@ -123,7 +123,7 @@ class T2T_ViT(nn.Module):
         num_patches = self.tokens_to_token.num_patches
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.pos_embed = nn.Parameter(data=get_sinusoid_encoding(n_position=num_patches, d_hid=embed_dim), requires_grad=False)
+        self.pos_embed = nn.Parameter(data=get_sinusoid_encoding(n_position=num_patches + 1, d_hid=embed_dim), requires_grad=False)
         # wcześniej było n_position=num_patches + 1
         self.pos_drop = nn.Dropout(p=drop_rate)
 
@@ -167,7 +167,10 @@ class T2T_ViT(nn.Module):
         B = x.shape[0]
         x = self.tokens_to_token(x)
         cls_tokens = self.cls_token.expand(B, -1, -1)
-        # x = torch.cat((cls_tokens, x), dim=1) #to wprowadza zamieszanie
+        x = torch.cat((cls_tokens, x), dim=1) #to wprowadza zamieszanie
+        # print(f'x shape is {x.shape}')
+        # print(f'pos_embed shape is {self.pos_embed.shape}')
+        # print(f'cls_tokens shape is {cls_tokens.shape}')
         x = x + self.pos_embed
         x = self.pos_drop(x)
 
@@ -175,7 +178,7 @@ class T2T_ViT(nn.Module):
             x = blk(x)
 
         x = self.norm(x)
-        return x # [:, 0]
+        return x #[:, 0]
     # with or without [:,0]
 
     def forward(self, x):
@@ -305,3 +308,9 @@ def t2t_vit_14_wide(pretrained=False, **kwargs):
         load_pretrained(
             model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
     return model
+
+if __name__ == "__main__":
+    model = t2t_vit_14(num_classes=10)
+    x = torch.zeros(1, 3, 224, 224)
+    out = model(x)
+    print(f'out shape is {out.shape}')
