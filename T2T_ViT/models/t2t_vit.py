@@ -178,7 +178,7 @@ class T2T_ViT(nn.Module):
             x = blk(x)
 
         x = self.norm(x)
-        return x #[:, 0]
+        return x[:, 0]
     # with or without [:,0]
 
     def forward(self, x):
@@ -308,9 +308,3 @@ def t2t_vit_14_wide(pretrained=False, **kwargs):
         load_pretrained(
             model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
     return model
-
-if __name__ == "__main__":
-    model = t2t_vit_14(num_classes=10)
-    x = torch.zeros(1, 3, 224, 224)
-    out = model(x)
-    print(f'out shape is {out.shape}')

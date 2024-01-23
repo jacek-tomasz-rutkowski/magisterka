@@ -245,8 +245,8 @@ def train(epoch):
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
-        outputs = net(inputs)[:,0]
-        # it was net(inputs) before, but we need output of
+        outputs = net(inputs) #[:,0]
+        # it was net(inputs)[:,0] before, because we maybe need output of
         # shape [128, 196, 10] for surrogate model
         loss = criterion(outputs, targets)
         loss.backward()
@@ -274,7 +274,7 @@ def test(epoch):
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
-            outputs = net(inputs)[:,0]
+            outputs = net(inputs) #[:,0]
             # it was outputs = net(inputs)
             loss = criterion(outputs, targets)
 

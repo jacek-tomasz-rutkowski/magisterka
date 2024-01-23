@@ -6,11 +6,16 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+from vit_shapley.modules.surrogate import Surrogate
+import os
+from collections import OrderedDict
+
 import models.t2t_vit
 from vit_shapley.modules import explainer_utils
 from vit_shapley.CIFAR_10_Dataset import CIFAR_10_Datamodule
 from utils import load_for_transfer_learning
 
+torch.set_float32_matmul_precision('medium') # | 'high')
 
 class Explainer(pl.LightningModule):
     """
@@ -53,9 +58,7 @@ class Explainer(pl.LightningModule):
 
         self.logger_ = logging.getLogger(__name__)
 
-        self.backbone = models.t2t_vit.t2t_vit_19(num_classes=10)
-
-        # print(f'backbone is {self.backbone}')
+        self.backbone = models.t2t_vit.t2t_vit_14(num_classes=10)
 
         # Nullify classification head built in the backbone module and rebuild.
 
@@ -63,13 +66,16 @@ class Explainer(pl.LightningModule):
         self.backbone.head = nn.Identity()
 
         # if self.hparams.explainer_head_num_attention_blocks == 0:
-        self.attention_blocks = nn.ModuleList([nn.Identity() for _ in range(2)])
+        self.attention_blocks = nn.ModuleList([nn.MultiheadAttention(
+                                embed_dim=self.backbone.num_features, 
+                                num_heads=4) for _ in range(1)])
+        
+        self.attention_blocks[0].norm1 = nn.Identity()
 
         # else:
         #     self.attention_blocks = nn.ModuleList([self.backbone.blocks[0].attn
         #                                     for _ in range(self.hparams.explainer_head_num_attention_blocks)])
 
-        #     self.attention_blocks[0].norm1 = nn.Identity()
 
         # mlps
         mlps_list = list[nn.Module]()
@@ -129,8 +135,6 @@ class Explainer(pl.LightningModule):
         # Set up modules for calculating metric
         explainer_utils.set_metrics(self)
 
-        # print(f'backbone later is {self.backbone}')
-
     def configure_optimizers(self):
         return explainer_utils.set_schedule(self)
 
@@ -150,12 +154,12 @@ class Explainer(pl.LightningModule):
                 self.surrogate.eval()
                 with torch.no_grad():
                     surrogate_device = cast(torch.device, self.surrogate.device)
-                    images = images.to(surrogate_device)
+                    images = images[0:1].to(surrogate_device)
                     masks = torch.zeros(1, cast(int, self.surrogate.num_players), device=surrogate_device)
                     logits = self.surrogate(images, masks) #['logits']
-                    self.__null = torch.nn.Softmax(dim=1)(logits).to(self.device)[:,0]
+
+                    self.__null = torch.nn.Softmax(dim=1)(logits).to(self.device)
                     # (batch, channel, height, weight) -> (1, num_classes)
-                    # było images[0:1] lub images[:,0]
                 return self.__null
             else:
                 raise RuntimeError(
@@ -170,8 +174,8 @@ class Explainer(pl.LightningModule):
             masks = torch.ones(images.shape[0], cast(int, self.surrogate.num_players), device=surrogate_device)
             logits = self.surrogate(images=images, masks=masks) #['logits']  # (batch, num_players)
             # logits = self.surrogate(images=images[:, 0:1], masks=masks)['logits']
-            grand = torch.nn.Softmax(dim=1)(logits).to(self.device)[:,0]
-            # (1, num_classes)
+            grand = torch.nn.Softmax(dim=1)(logits).to(self.device) #[:,0][0].unsqueeze(0)
+                        # (1, num_classes)
         return grand
 
     def surrogate_multiple_masks(self, images, multiple_masks=None):
@@ -199,12 +203,15 @@ class Explainer(pl.LightningModule):
             surrogate_values = torch.nn.Softmax(dim=1)(self.surrogate(
                 images=images.repeat_interleave(num_mask_samples, dim=0).to(surrogate_device),
                 # (batch, channel, height, weight) -> (batch * num_mask_samples, channel, height, weight)
-                masks=multiple_masks.flatten(0, 1).to(surrogate_device)
+                masks=multiple_masks.flatten(0, 1).unsqueeze(1).to(surrogate_device)
                 # (batch, num_mask_samples, num_players) -> (batch * num_mask_samples, num_players)
-            )).reshape(batch_size, num_mask_samples, -1).to(
-                self.device)    # ['logits']
-            
+            )).reshape(batch_size, num_mask_samples, -1).to(self.device) 
+
         return surrogate_values
+    
+    def forward_features(self, x):
+        x = self.backbone.forward_features(x)
+        return x[:, :-1]
 
     def forward(self, images, surrogate_grand=None, surrogate_null=None):
         """
@@ -220,29 +227,16 @@ class Explainer(pl.LightningModule):
             pred_sum: torch.Tensor (batch, num_classes)
 
         """
+        self.backbone.forward_features = self.forward_features
         embedding_all = self.backbone(x=images)
-        # dummy_input = torch.zeros(32, 3, 224, 224)
-
-        # dummy_input = self.backbone.forward_features(dummy_input)
-        # print(f'dummy_input shape is {dummy_input.shape}')
-
-        # dummy_input = torch.zeros(32, 3, 224, 224)
-        # for layer in self.backbone.tokens_to_token():
-        #     dummy_input = layer(dummy_input)
-        #     print(f'shape after layer {layer} is {dummy_input.size()}')
-        # for layer in self.backbone.blocks():
-        #     dummy_input = layer(dummy_input)
-        #     print(f'shape after layer {layer} is {dummy_input.size()}')
-
-        # print(f'embedding_all shape is {embedding_all.shape}')
-
+        
         for i, layer_module in enumerate(self.attention_blocks):
-            layer_outputs = layer_module(embedding_all)
-            # embedding_all = layer_outputs[0] tak było pierwej
-            embedding_all = layer_outputs
+            layer_outputs = layer_module(embedding_all, embedding_all, embedding_all)
+            embedding_all = layer_outputs[0]  
 
         pred = self.mlps(embedding_all)
         pred = pred.tanh()
+       
 
         if self.normalization:
             if surrogate_grand is None:
@@ -255,6 +249,8 @@ class Explainer(pl.LightningModule):
 
         if self.normalization_class:
             pred = self.normalization_class(pred=pred)
+
+        pred = pred #[:, :-1] # added to match shape 196 instead of 197
 
         pred_sum = pred.sum(dim=1)  # (batch, num_players, num_classes) -> (batch, num_classes)
         pred_sum_class = pred.sum(dim=2)  # (batch, num_players, num_classes) -> (batch, num_players)
@@ -276,12 +272,13 @@ class Explainer(pl.LightningModule):
             images, surrogate_grand=surrogate_grand, surrogate_null=surrogate_null
         )  # (batch, channel, height, weight) -> (batch, num_players, num_classes), (batch, num_classes)
 
-        value_pred_approx = surrogate_null[0] + masks.float() @ values_pred
+        value_pred_approx = surrogate_null + masks.float() @ values_pred
         # (1, num_classes) + (batch, num_mask_samples, num_players) @ (batch, num_players, num_classes) ->
         # -> (batch, num_mask_samples, num_classes)
 
         mse_loss = F.mse_loss(input=value_pred_approx, target=surrogate_values, reduction='mean')
         value_diff = self.surrogate.num_players * mse_loss
+
 
         loss = explainer_utils.compute_metrics(self,
                                                num_players=self.surrogate.num_players,
@@ -307,6 +304,7 @@ class Explainer(pl.LightningModule):
 
         # evaluate surrogate
         surrogate_values = self.surrogate_multiple_masks(images, masks)
+
         surrogate_grand = self.grand(images)  # (batch, channel, height, weight) -> (batch, num_classes)
         surrogate_null = self.null(images)  # (batch, channel, height, weight) -> (1, num_classes)
 
@@ -316,12 +314,11 @@ class Explainer(pl.LightningModule):
         )
         # (batch, channel, height, weight) -> (batch, num_players, num_classes), (batch, num_classes)
 
-        value_pred_approx = surrogate_null[0] + masks.float() @ values_pred
+        value_pred_approx = surrogate_null + masks.float() @ values_pred
         # było po prostu surrogate_null
         # (1, num_classes) + (batch, num_mask_samples, num_players) @ (batch, num_players, num_classes) ->
         # -> (batch, num_mask_samples, num_classes)
-
-        
+  
 
         loss = explainer_utils.compute_metrics(self,
                                                num_players=self.surrogate.num_players,
@@ -356,7 +353,7 @@ class Explainer(pl.LightningModule):
         # (batch, channel, height, weight) ->
         # -> (batch, num_players, num_classes), (batch, num_classes), (batch, num_players)
 
-        value_pred_approx = surrogate_null[0] + masks.float() @ values_pred
+        value_pred_approx = surrogate_null + masks.float() @ values_pred
         # było surrogate_null
         # (1, num_classes) + (batch, num_mask_samples, num_players) @ (batch, num_players, num_classes) ->
         # -> (batch, num_mask_samples, num_classes)
@@ -380,24 +377,42 @@ class Explainer(pl.LightningModule):
 
 
 if __name__ == '__main__':
-    from vit_shapley.modules.surrogate import Surrogate
-    import os
+    target_model = models.t2t_vit.t2t_vit_14(num_classes=10)
 
-    os.chdir("../../")
+    # num_classes=10
+    checkpoint = torch.load('../../checkpoint_cifar10_T2t_vit_14/ckpt_0.01_0.0005_97.5.pth')
 
-    surrogate = Surrogate(output_dim=10,
-                          target_model=None,
-                          learning_rate=1e-3,
-                          weight_decay=0.0,
-                          decay_power=None,
-                          warmup_steps=None)
+    new_state_dict = OrderedDict()
 
-    print(1)
-    with torch.no_grad():
-        out = surrogate(torch.rand(32, 3, 224, 224), torch.ones(1, 196))
-        print(f'out is {out.keys()}, {out["logits"].shape}!')
+    for k, v in checkpoint.items():
+        # strip `module.` prefix
+        name = k[7:] if k.startswith('module') else k
+        new_state_dict[name] = v
 
-    CIFAR_10 = CIFAR_10_Datamodule(num_players=196, num_mask_samples=2)
+    state_dict = new_state_dict
+
+    target_model.load_state_dict(state_dict, strict=False)
+    
+    surrogate = Surrogate.load_from_checkpoint("checkpoints_surrogate/lightning_logs/version_0/checkpoints/epoch=49-step=70350.ckpt",
+                                        output_dim=10,
+                                        target_model=target_model,
+                                        learning_rate=1e-5,
+                                        weight_decay=0.0,
+                                        decay_power='cosine',
+                                        warmup_steps=2,
+    )
+    # surrogate = Surrogate(output_dim=10,
+    #                       target_model=None,
+    #                       learning_rate=1e-5,
+    #                       weight_decay=0.,
+    #                       decay_power='cosine', 
+    #                       warmup_steps=2                         
+    #                       )
+
+    CIFAR_10 = CIFAR_10_Datamodule(num_players=196, 
+                                   num_mask_samples=2, 
+                                   paired_mask_samples=True)
+
     explainer = Explainer(
         output_dim=10,
         explainer_head_num_attention_blocks=1,
@@ -414,7 +429,8 @@ if __name__ == '__main__':
         warmup_steps=None
     )
 
-    trainer = pl.Trainer(max_epochs=2, default_root_dir="./checkpoints")# logger=False)
-    trainer.fit(explainer, CIFAR_10)
+    print(explainer)
+
+    # trainer = pl.Trainer(max_epochs=100, default_root_dir="./checkpoints_explainer")# logger=False)
+    # trainer.fit(explainer, CIFAR_10)
     
-    print(1)

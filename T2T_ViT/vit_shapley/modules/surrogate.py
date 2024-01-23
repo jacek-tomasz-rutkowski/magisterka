@@ -86,10 +86,8 @@ class Surrogate(pl.LightningModule):
         images_masked = images * masks.unsqueeze(1)    
         out = self.backbone(images_masked)
         logits = self.head(out)
-        # [:,0].unsqueeze(1)
+        # [:,0].unsqueeze(1) is not needed
         
-        # output = {'logits': logits}
-
         return logits
 
     def training_step(self, batch, batch_idx):
@@ -139,7 +137,7 @@ if __name__ == "__main__":
     target_model = models.t2t_vit.t2t_vit_14(num_classes=10)
 
     # num_classes=10
-    checkpoint = torch.load('../../checkpoint_cifar10_T2t_vit_14/ckpt_0.01_0.0005_97.23.pth')
+    checkpoint = torch.load('../../checkpoint_cifar10_T2t_vit_14/ckpt_0.01_0.0005_97.5.pth')
 
     new_state_dict = OrderedDict()
 

@@ -68,6 +68,7 @@ def compute_metrics(pl_module, num_players,
                     value_pred_beforenorm_sum, surrogate_grand, surrogate_null,
                     efficiency_class_lambda, value_pred_beforenorm_sum_class,
                     phase):
+    
     value_diff = num_players * F.mse_loss(input=values_pred, target=values_target,
                                           reduction='mean')  # (batch, num_mask_samples, num_classes), (batch, num_mask_samples, num_classes)
 
