@@ -85,7 +85,7 @@ class CIFAR_10_Dataset(Dataset):
         self.shape = (224, 224, 3)
         transform = torchvision.transforms.Compose(
             [
-                torchvision.transforms.Resize(self.shape[:2], torchvision.transforms.InterpolationMode.NEAREST),
+                torchvision.transforms.Resize(self.shape[:2], torchvision.transforms.InterpolationMode.BILINEAR),
                 torchvision.transforms.ToTensor(),
                 self.normalization,
             ]
