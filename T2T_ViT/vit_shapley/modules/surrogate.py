@@ -1,4 +1,4 @@
-import logging
+from collections import OrderedDict
 from typing import Optional
 
 import pytorch_lightning as pl
@@ -6,11 +6,14 @@ import torch
 import torch.nn as nn
 from torchvision import models as cnn_models
 import math
+from pytorch_lightning.utilities.types import OptimizerLRSchedulerConfig
+from torch.nn import functional as F
+from transformers import get_cosine_schedule_with_warmup
+from transformers.optimization import AdamW
 
 import models.t2t_vit
-from vit_shapley.modules import surrogate_utils
 from utils import load_for_transfer_learning
-from vit_shapley.CIFAR_10_Dataset import CIFAR_10_Dataset, CIFAR_10_Datamodule
+from vit_shapley.CIFAR_10_Dataset import CIFAR_10_Datamodule, apply_masks
 from collections import OrderedDict
 import argparse
 
@@ -20,6 +23,7 @@ parser = argparse.ArgumentParser(description="Surrogate training")
 parser.add_argument("--num_players", required=False, default=16, type=int, help="number of players")
 
 args = parser.parse_args()
+
 
 class Surrogate(pl.LightningModule):
     """
@@ -35,16 +39,18 @@ class Surrogate(pl.LightningModule):
         warmup_steps: parameter for the `cosine` annealing scheduler
     """
 
-    def __init__(self,
-                 output_dim: int,
-                 target_model: Optional[nn.Module],
-                 learning_rate: Optional[float],
-                 weight_decay: Optional[float],
-                 decay_power: Optional[str],
-                 warmup_steps: Optional[int]):
-
+    def __init__(
+        self,
+        output_dim: int,
+        target_model: Optional[nn.Module],
+        learning_rate: Optional[float],
+        weight_decay: Optional[float],
+        decay_power: Optional[str],
+        warmup_steps: Optional[int],
+    ):
         super().__init__()
-        self.save_hyperparameters(ignore=['target_model'])
+        # Save arguments (output_dim, ..., warmup_steps) into self.hparams.
+        self.save_hyperparameters(ignore=["target_model"])
         self.target_model = target_model
 
         # Backbone initialization
@@ -66,84 +72,86 @@ class Surrogate(pl.LightningModule):
         # self.num_players = 196  # 14 * 14
         self.num_players = args.num_players
 
-        # Set up modules for calculating metric
-        surrogate_utils.set_metrics(self)
-
-    def configure_optimizers(self):
-        return surrogate_utils.set_schedule(self)
-
-    def forward(self, images, masks):
+    def forward(self, images: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
         assert masks.shape[-1] == self.num_players
-
-
-        # if images.shape[2:4] == (224, 224) and masks.shape[1] == 196:
-        patch_size = int(math.sqrt(self.num_players))
-        masks = masks.reshape(-1, patch_size, patch_size)
-        num_patches = 224//patch_size
-        masks = torch.repeat_interleave(torch.repeat_interleave(masks, num_patches, dim=2), num_patches, dim=1)
-        
-        
-        images_masked = images * masks.unsqueeze(1)    
-        out = self.backbone(images_masked)
-        logits = self.head(out)
+        images_masked = apply_masks(images, masks)
+        out: torch.Tensor = self.backbone(images_masked)
+        logits: torch.Tensor = self.head(out)
         # [:,0].unsqueeze(1) is not needed
-        
+
         return logits
+
+    @staticmethod
+    def _surrogate_loss(logits: torch.Tensor, logits_target: torch.Tensor) -> torch.Tensor:
+        """Returns KL-divergence(softmax(logits_target) || softmax(logits)).
+
+        Input shapes: (batch_size, num_classes).
+        Output shape: (1,).
+        """
+        return F.kl_div(
+            input=torch.log_softmax(logits, dim=1),
+            target=torch.log_softmax(logits_target, dim=1),
+            reduction="batchmean",
+            log_target=True,
+        )
 
     def training_step(self, batch, batch_idx):
         assert self.target_model is not None
         images, masks = batch["images"], batch["masks"]
 
-        logits = self(images, masks) # ['logits']
+        logits = self(images, masks)  # ['logits']
         self.target_model.eval()
         with torch.no_grad():
-            logits_target = self.target_model(images.to(self.target_model.device)).to(
-                self.device) #['logits']
-        loss = surrogate_utils.compute_metrics(self, logits=logits, logits_target=logits_target, phase='train')
+            logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
+        loss = self._surrogate_loss(logits=logits, logits_target=logits_target)
+        self.log("train/loss", loss)
         return loss
-
-    def on_training_epoch_end(self):
-        surrogate_utils.epoch_wrapup(self, phase='train')
 
     def validation_step(self, batch, batch_idx):
         assert self.target_model is not None
         images, masks = batch["images"], batch["masks"]
-        logits = self(images, masks) #['logits']
-        self.target_model.eval()
-        with torch.no_grad():
-            logits_target = self.target_model(images.to(self.target_model.device)).to(
-                self.device) #['logits']
-        loss = surrogate_utils.compute_metrics(self, logits=logits, logits_target=logits_target, phase='val')
-
-    def on_validation_epoch_end(self,):
-        surrogate_utils.epoch_wrapup(self, phase='val')
+        logits = self(images, masks)  # ['logits']
+        logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
+        self.log("val/loss", self._surrogate_loss(logits=logits, logits_target=logits_target))
 
     def test_step(self, batch, batch_idx):
         assert self.target_model is not None
         images, masks = batch["images"], batch["masks"]
-        logits = self(images, masks) # ['logits']
-        self.target_model.eval()
-        with torch.no_grad():
-            logits_target = self.target_model(images.to(self.target_model.device)).to(
-                self.device) #['logits']
-        loss = surrogate_utils.compute_metrics(self, logits=logits, logits_target=logits_target, phase='test')
+        logits = self(images, masks)  # ['logits']
+        logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
+        self.log("val/loss", self._surrogate_loss(logits=logits, logits_target=logits_target))
 
-    def on_test_epoch_end(self):
-        surrogate_utils.epoch_wrapup(self, phase='test')
+    def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
+        optimizer = AdamW(
+            params=self.parameters(), lr=self.hparams["learning_rate"], weight_decay=self.hparams["weight_decay"]
+        )
 
+        if self.trainer.max_steps is None or self.trainer.max_steps == -1:
+            n_train_batches_per_epoch = len(self.trainer.datamodule.train_dataloader())  # type: ignore
+            n_train_batches_total = n_train_batches_per_epoch * self.trainer.max_epochs  # type: ignore
+            max_steps = n_train_batches_total // self.trainer.accumulate_grad_batches
+        else:
+            max_steps = self.trainer.max_steps
+
+        assert self.hparams["decay_power"] == "cosine", "Only cosine annealing scheduler is supported currently"
+        scheduler = get_cosine_schedule_with_warmup(
+            optimizer, num_warmup_steps=self.hparams["warmup_steps"], num_training_steps=max_steps
+        )
+
+        return {"optimizer": optimizer, "lr_scheduler": {"scheduler": scheduler, "interval": "step"}}
 
 
 if __name__ == "__main__":
     target_model = models.t2t_vit.t2t_vit_14(num_classes=10)
 
     # num_classes=10
-    checkpoint = torch.load('../../checkpoint_cifar10_T2t_vit_14/ckpt_0.01_0.0005_97.5.pth')
+    checkpoint = torch.load("../../checkpoint_cifar10_T2t_vit_14/ckpt_0.01_0.0005_97.5.pth")
 
     new_state_dict = OrderedDict()
 
     for k, v in checkpoint.items():
         # strip `module.` prefix
-        name = k[7:] if k.startswith('module') else k
+        name = k[7:] if k.startswith("module") else k
         new_state_dict[name] = v
 
     state_dict = new_state_dict
@@ -156,10 +164,10 @@ if __name__ == "__main__":
                           weight_decay=0.0,
                           decay_power='cosine',
                           warmup_steps=2)
-    
+
 
     CIFAR_10 = CIFAR_10_Datamodule(num_players=args.num_players, num_mask_samples=1, paired_mask_samples=False)
 
-    trainer = pl.Trainer(max_epochs=50, 
+    trainer = pl.Trainer(max_epochs=50,
                          default_root_dir=f"./checkpoints_surrogate_num_players_lala_{surrogate.num_players}")# logger=False)
     trainer.fit(surrogate, CIFAR_10)

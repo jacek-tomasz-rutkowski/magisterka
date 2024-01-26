@@ -12,6 +12,34 @@ from torch.utils.data import random_split, Dataset, DataLoader
 PROJECT_ROOT = Path(__file__).parent.parent  # Path to the T2T_VIT/ directory.
 
 
+def apply_masks_to_batch(
+    images: torch.Tensor, labels: torch.Tensor, masks: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return a batch of masked images, labels, masks (without a num_masks_per_image dimension).
+
+    See `apply_masks()` for details on masking.
+
+    Args:
+    - images: shape (B, C, H, W).
+    - labels: shape (B,).
+    - masks: shape (B, n_masks_per_image, n_players).
+
+    Returns (images, labels, masks) where:
+    - images: masked to shape (B * n_masks_per_image, C, H, W).
+    - labels: repeated to shape (B * n_masks_per_image,).
+    - masks: reshaped to shape (B * n_masks_per_image, n_players).
+    """
+    if len(masks.shape) == 2:
+        masks = masks.unsqueeze(dim=1)
+    B, n_masks_per_image, n_players = masks.shape
+    assert images.shape[0] == B and images.shape[1] in [1, 3], f"Unexpected {images.shape=}"
+    assert labels.shape == (B,)
+    images_masked = apply_masks(images, masks)
+    labels = labels.repeat_interleave(n_masks_per_image)
+    masks = masks.view(B * n_masks_per_image, n_players)
+    return images_masked, labels, masks
+
+
 def apply_masks(images: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
     """Zeroes out masked pixels in images.
 
@@ -21,14 +49,11 @@ def apply_masks(images: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
 
     Args:
     - images: shape (B, C, H, W).
-    - masks: shape (B, n_masks_per_image, n_players) or (B, n_players).
+    - masks: shape (B, n_masks_per_image, n_players).
     Returns:
-    - shape (B, n_masks_per_image, C, H, W) or (B, C, H, W).
+    - shape (B * n_masks_per_image, C, H, W).
     """
     B, C, H, W = images.shape
-    squeezed = len(masks.shape) == 2
-    if squeezed:
-        masks = masks.unsqueeze(dim=1)
     B2, n_masks_per_image, n_players = masks.shape
     assert B == B2
 
@@ -51,9 +76,7 @@ def apply_masks(images: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
     images = images * masks
     # Images now have shape (B, n_masks_per_image, C, H, W)
 
-    if squeezed:
-        images = images.squeeze(dim=1)
-    return images
+    return images.view(B * n_masks_per_image, C, H, W)
 
 
 class CIFAR_10_Dataset(Dataset):
@@ -93,9 +116,9 @@ class CIFAR_10_Dataset(Dataset):
         self.dataset = torchvision.datasets.CIFAR10(root=root_path, train=train, download=download, transform=transform)
 
     @staticmethod
-    def generate_mask(
+    def generate_masks(
         num_players: int,
-        num_mask_samples: Optional[int] = None,
+        num_mask_samples: int = 1,
         paired_mask_samples: bool = True,
         mode: str = "uniform",
         random_state: Optional[np.random.Generator] = None,
@@ -109,9 +132,7 @@ class CIFAR_10_Dataset(Dataset):
             random_state: random generator
 
         Returns:
-            torch.Tensor of shape
-            (num_mask_samples, num_players) if num_mask_samples is int
-            (num_players) if num_mask_samples is None
+            int ndarray of shape (num_mask_samples, num_players).
 
         """
         random_state = random_state or np.random.default_rng()
@@ -139,17 +160,14 @@ class CIFAR_10_Dataset(Dataset):
         if paired_mask_samples:
             masks = np.stack([masks, 1 - masks], axis=1).reshape(num_samples_ * 2, num_players)
 
-        if num_mask_samples is None:
-            return masks.squeeze(0)
-        else:
-            return masks
+        return masks
 
     def __len__(self) -> int:
         return len(self.dataset)
 
     def __getitem__(self, idx: int) -> dict:
         image, label = self.dataset[idx]
-        masks = self.generate_mask(
+        masks = self.generate_masks(
             num_players=self.num_players,
             num_mask_samples=self.num_mask_samples,
             paired_mask_samples=self.paired_mask_samples,
@@ -180,7 +198,9 @@ class CIFAR_10_Dataset(Dataset):
     ) -> PIL.Image.Image:
         images = [cls.to_image(x[i], scale=scale) for i in range(len(x))]
         str_labels = cls.labels_to_strings(labels) if labels is not None else None
-        return _make_image_grid(images, labels=str_labels, colors=colors, font_size=int(35 * scale), n_columns=n_columns)
+        return _make_image_grid(
+            images, labels=str_labels, colors=colors, font_size=int(35 * scale), n_columns=n_columns
+        )
 
 
 class CIFAR_10_Datamodule(pl.LightningDataModule):
@@ -264,7 +284,7 @@ def _make_image_grid(
     labels: Optional[list[str]] = None,
     colors: Optional[list[tuple[int, int, int]]] = None,
     n_columns: int = 8,
-    font_size=19
+    font_size=19,
 ) -> PIL.Image.Image:
     """Arrange a list of images into a grid image."""
     B = len(images)
