@@ -5,13 +5,21 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 from torchvision import models as cnn_models
-
+import math
 
 import models.t2t_vit
 from vit_shapley.modules import surrogate_utils
 from utils import load_for_transfer_learning
 from vit_shapley.CIFAR_10_Dataset import CIFAR_10_Dataset, CIFAR_10_Datamodule
 from collections import OrderedDict
+import argparse
+
+torch.set_float32_matmul_precision('medium')
+
+parser = argparse.ArgumentParser(description="Surrogate training")
+parser.add_argument("--num_players", required=False, default=16, type=int, help="number of players")
+
+args = parser.parse_args()
 
 class Surrogate(pl.LightningModule):
     """
@@ -55,7 +63,8 @@ class Surrogate(pl.LightningModule):
         self.head = nn.Linear(head_in_features, self.hparams["output_dim"])
 
         # Set `num_players` variable.
-        self.num_players = 196  # 14 * 14
+        # self.num_players = 196  # 14 * 14
+        self.num_players = args.num_players
 
         # Set up modules for calculating metric
         surrogate_utils.set_metrics(self)
@@ -67,20 +76,11 @@ class Surrogate(pl.LightningModule):
         assert masks.shape[-1] == self.num_players
 
 
-        if images.shape[2:4] == (224, 224) and masks.shape[1] == 196:
-            masks = masks.reshape(-1, 14, 14)
-            masks = torch.repeat_interleave(torch.repeat_interleave(masks, 16, dim=2), 16, dim=1)
-            # masks = masks.reshape(-1, 4, 4)
-            # masks = torch.repeat_interleave(torch.repeat_interleave(masks, 56, dim=2), 56, dim=1)
-
-        elif images.shape[2:4] == (224, 224) and masks.shape[2] == 196:
-
-            masks = masks[:,0]
-            masks = masks.reshape(-1, 14, 14)
-            masks = torch.repeat_interleave(torch.repeat_interleave(masks, 16, dim=2), 16, dim=1)
-
-        else:
-            raise NotImplementedError
+        # if images.shape[2:4] == (224, 224) and masks.shape[1] == 196:
+        patch_size = int(math.sqrt(self.num_players))
+        masks = masks.reshape(-1, patch_size, patch_size)
+        num_patches = 224//patch_size
+        masks = torch.repeat_interleave(torch.repeat_interleave(masks, num_patches, dim=2), num_patches, dim=1)
         
         
         images_masked = images * masks.unsqueeze(1)    
@@ -156,8 +156,10 @@ if __name__ == "__main__":
                           weight_decay=0.0,
                           decay_power='cosine',
                           warmup_steps=2)
+    
 
-    CIFAR_10 = CIFAR_10_Datamodule(num_players=196, num_mask_samples=1, paired_mask_samples=False)
+    CIFAR_10 = CIFAR_10_Datamodule(num_players=args.num_players, num_mask_samples=1, paired_mask_samples=False)
 
-    trainer = pl.Trainer(max_epochs=50, default_root_dir="./checkpoints_surrogate")# logger=False)
+    trainer = pl.Trainer(max_epochs=50, 
+                         default_root_dir=f"./checkpoints_surrogate_num_players_lala_{surrogate.num_players}")# logger=False)
     trainer.fit(surrogate, CIFAR_10)

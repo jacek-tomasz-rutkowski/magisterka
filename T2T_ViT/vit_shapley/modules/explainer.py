@@ -210,8 +210,20 @@ class Explainer(pl.LightningModule):
         return surrogate_values
     
     def forward_features(self, x):
-        x = self.backbone.forward_features(x)
-        return x[:, :-1]
+        B = x.shape[0]
+        x = self.backbone.tokens_to_token(x)
+        cls_tokens = self.backbone.cls_token.expand(B, -1, -1)
+
+        x = torch.cat((cls_tokens, x), dim=1) #to wprowadza zamieszanie
+        x = x + self.backbone.pos_embed
+        x = self.backbone.pos_drop(x)
+
+        for blk in self.backbone.blocks:
+            x = blk(x)
+
+        x = self.backbone.norm(x)
+        # return x[:, 0]
+        return x[:, :self.surrogate.num_players]
 
     def forward(self, images, surrogate_grand=None, surrogate_null=None):
         """
@@ -237,7 +249,6 @@ class Explainer(pl.LightningModule):
         pred = self.mlps(embedding_all)
         pred = pred.tanh()
        
-
         if self.normalization:
             if surrogate_grand is None:
                 # (batch, channel, height, weight) -> (batch, num_classes)
@@ -245,12 +256,14 @@ class Explainer(pl.LightningModule):
             if surrogate_null is None:
                 # (batch, channel, height, weight) -> (1, num_classes)
                 surrogate_null = self.null(images).to(self.device)
+            
             pred = self.normalization(pred=pred, grand=surrogate_grand, null=surrogate_null)
 
         if self.normalization_class:
             pred = self.normalization_class(pred=pred)
 
-        pred = pred #[:, :-1] # added to match shape 196 instead of 197
+
+        # pred = pred[:, :-1] # added to match shape 196 instead of 197
 
         pred_sum = pred.sum(dim=1)  # (batch, num_players, num_classes) -> (batch, num_classes)
         pred_sum_class = pred.sum(dim=2)  # (batch, num_players, num_classes) -> (batch, num_players)
@@ -393,7 +406,7 @@ if __name__ == '__main__':
 
     target_model.load_state_dict(state_dict, strict=False)
     
-    surrogate = Surrogate.load_from_checkpoint("checkpoints_surrogate/lightning_logs/version_0/checkpoints/epoch=49-step=70350.ckpt",
+    surrogate = Surrogate.load_from_checkpoint("checkpoints_surrogate_num_players_16/lightning_logs/version_2/checkpoints/epoch=49-step=70350.ckpt",
                                         output_dim=10,
                                         target_model=target_model,
                                         learning_rate=1e-5,
@@ -401,18 +414,11 @@ if __name__ == '__main__':
                                         decay_power='cosine',
                                         warmup_steps=2,
     )
-    # surrogate = Surrogate(output_dim=10,
-    #                       target_model=None,
-    #                       learning_rate=1e-5,
-    #                       weight_decay=0.,
-    #                       decay_power='cosine', 
-    #                       warmup_steps=2                         
-    #                       )
 
-    CIFAR_10 = CIFAR_10_Datamodule(num_players=196, 
+    CIFAR_10 = CIFAR_10_Datamodule(num_players=surrogate.num_players, 
                                    num_mask_samples=2, 
                                    paired_mask_samples=True)
-
+    
     explainer = Explainer(
         output_dim=10,
         explainer_head_num_attention_blocks=1,
@@ -428,9 +434,8 @@ if __name__ == '__main__':
         decay_power=None,
         warmup_steps=None
     )
-
-    print(explainer)
-
-    # trainer = pl.Trainer(max_epochs=100, default_root_dir="./checkpoints_explainer")# logger=False)
-    # trainer.fit(explainer, CIFAR_10)
+    
+    trainer = pl.Trainer(max_epochs=100, 
+                         default_root_dir=f"./checkpoints_explainer_num_players_{surrogate.num_players}")
+    trainer.fit(explainer, CIFAR_10)
     

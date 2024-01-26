@@ -81,22 +81,15 @@ class T2T_module(nn.Module):
 
     def forward(self, x):
         # step0: soft split
-        # print(f'x shape begin: {x.shape}')
         x = self.soft_split0(x).transpose(1, 2)
-
-        # print(f'x shape after soft_split0: {x.shape}')
 
         # iteration1: re-structurization/reconstruction
         x = self.attention1(x)
-        # print(f'x shape after attention: {x.shape}')
         B, new_HW, C = x.shape
         x = x.transpose(1,2).reshape(B, C, int(np.sqrt(new_HW)), int(np.sqrt(new_HW)))
 
-        # print(f'x shape after transpose: {x.shape}')
         # iteration1: soft split
         x = self.soft_split1(x).transpose(1, 2)
-
-        # print(f'x shape after soft_split1: {x.shape}')
 
         # iteration2: re-structurization/reconstruction
         x = self.attention2(x)
@@ -167,10 +160,7 @@ class T2T_ViT(nn.Module):
         B = x.shape[0]
         x = self.tokens_to_token(x)
         cls_tokens = self.cls_token.expand(B, -1, -1)
-        x = torch.cat((cls_tokens, x), dim=1) #to wprowadza zamieszanie
-        # print(f'x shape is {x.shape}')
-        # print(f'pos_embed shape is {self.pos_embed.shape}')
-        # print(f'cls_tokens shape is {cls_tokens.shape}')
+        x = torch.cat((cls_tokens, x), dim=1) 
         x = x + self.pos_embed
         x = self.pos_drop(x)
 
@@ -198,7 +188,7 @@ def t2t_vit_7(pretrained=False, **kwargs): # adopt performer for tokens to token
     return model
 
 @register_model
-def t2t_vit_10(pretrained=False, **kwargs): # adopt performer for tokens to token
+def t2t_vit_ma(pretrained=False, **kwargs): # adopt performer for tokens to token
     if pretrained:
         kwargs.setdefault('qk_scale', 256 ** -0.5)
     model = T2T_ViT(tokens_type='performer', embed_dim=256, depth=10, num_heads=4, mlp_ratio=2., **kwargs)
@@ -308,3 +298,4 @@ def t2t_vit_14_wide(pretrained=False, **kwargs):
         load_pretrained(
             model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
     return model
+
