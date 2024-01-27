@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 from pathlib import Path
 
 import torch
@@ -9,7 +9,7 @@ import PIL.Image
 import PIL.ImageDraw
 from torch.utils.data import random_split, Dataset, DataLoader
 
-PROJECT_ROOT = Path(__file__).parent.parent  # Path to the T2T_VIT/ directory.
+PROJECT_ROOT = Path(__file__).parent.parent  # Path to the T2T_ViT/ directory.
 
 
 def apply_masks_to_batch(
@@ -204,21 +204,33 @@ class CIFAR_10_Dataset(Dataset):
 
 
 class CIFAR_10_Datamodule(pl.LightningDataModule):
-    def __init__(self, num_players, num_mask_samples, paired_mask_samples):
+    classes = CIFAR_10_Dataset.classes
+
+    def __init__(
+        self,
+        num_players: int,
+        num_mask_samples: int,
+        paired_mask_samples: bool,
+        batch_size: int = 32,
+        num_workers: int = 2,
+    ):
         super().__init__()
         self.num_players = num_players
         self.num_mask_samples = num_mask_samples
         self.paired_mask_samples = paired_mask_samples
-        self._dataset_kwargs = dict(
+        self._dataset_kwargs: dict[str, Any] = dict(
             num_players=num_players,
             num_mask_samples=num_mask_samples,
             paired_mask_samples=paired_mask_samples,
             root_path=PROJECT_ROOT / "CIFAR_10_data",
             download=False,
         )
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self._dataloader_kwargs: dict[str, Any] = dict(batch_size=batch_size, num_workers=num_workers)
         self.prepare_data_per_node = True
 
-    def prepare_data(self):
+    def prepare_data(self) -> None:
         # Instantiate datasets to make sure they exists or to download them.
         CIFAR_10_Dataset(train=True, **self._dataset_kwargs)
         CIFAR_10_Dataset(train=False, **self._dataset_kwargs)
@@ -233,16 +245,14 @@ class CIFAR_10_Datamodule(pl.LightningDataModule):
         if stage == "test" or stage is None:
             self.test = CIFAR_10_Dataset(train=False, **self._dataset_kwargs)
 
-        self.classes: list[str] = self.test.classes
-
     def train_dataloader(self):
-        return DataLoader(self.train, batch_size=32, num_workers=0)
+        return DataLoader(self.train, shuffle=True, **self._dataloader_kwargs)
 
     def val_dataloader(self):
-        return DataLoader(self.validate, batch_size=32, num_workers=0)
+        return DataLoader(self.validate, **self._dataloader_kwargs)
 
     def test_dataloader(self):
-        return DataLoader(self.test, batch_size=32, num_workers=0)
+        return DataLoader(self.test, **self._dataloader_kwargs)
 
 
 def _tensor_to_image(

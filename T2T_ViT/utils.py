@@ -15,7 +15,7 @@ import math
 import os
 import sys
 import time
-from collections import OrderedDict
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -24,6 +24,38 @@ import torch.nn.functional as F
 from torch.utils.data.dataset import Dataset
 
 _logger = logging.getLogger(__name__)
+
+
+def load_checkpoint(checkpoint_path: Path, model: nn.Module, ignore_keys: list[str] = [], device="cpu") -> None:
+    """
+    Load a checkpoint onto a model.
+
+    Ignored keys are kept unchanged in the model (typically ["head.weight", "head.bias"] for transfer learning).
+    """
+
+    state_dict = torch.load(checkpoint_path, map_location=device)
+
+    # Fix nested state_dict-s.
+    for k in ["state_dict_ema", "state_dict", "model_ema", "model", "net"]:
+        if k in state_dict:
+            state_dict = state_dict[k]
+    some_key = next(iter(state_dict.keys()))
+    if some_key.startswith("module."):
+        state_dict = {k.removeprefix("module."): v for k, v in state_dict.items()}
+
+    # Resize position embedding if necessary.
+    if state_dict["pos_embed"].shape != model.pos_embed.shape:
+        state_dict["pos_embed"] = resize_pos_embed(state_dict["pos_embed"], model.pos_embed)
+
+    # Handle ignored keys.
+    if ignore_keys:
+        model_state_dict = model.state_dict()
+        for k in ignore_keys:
+            if k in state_dict:
+                state_dict[k] = model_state_dict[k]
+
+    model.load_state_dict(state_dict, strict=True)
+    model.to(device)
 
 
 def resize_pos_embed(posemb: torch.Tensor, posemb_new: torch.Tensor) -> torch.Tensor:
@@ -58,19 +90,16 @@ def load_state_dict(checkpoint_path, model, use_ema=False, num_classes=1000, del
             if use_ema and 'state_dict_ema' in checkpoint:
                 state_dict_key = 'state_dict_ema'
         if state_dict_key and state_dict_key in checkpoint:
-            new_state_dict = OrderedDict()
-            for k, v in checkpoint[state_dict_key].items():
-                # strip `module.` prefix
-                name = k[7:] if k.startswith('module') else k
-                new_state_dict[name] = v
-            state_dict = new_state_dict
+            state_dict = {k.removeprefix('module.'): v for k, v in checkpoint[state_dict_key].items()}
         else:
             state_dict = checkpoint
         _logger.info("Loaded {} from checkpoint '{}'".format(state_dict_key, checkpoint_path))
         if num_classes != 1000:
             # completely discard fully connected for all other differences between pretrained and created model
-            del state_dict['head' + '.weight']
-            del state_dict['head' + '.bias']
+            # del state_dict['head' + '.weight']
+            # del state_dict['head' + '.bias']
+            state_dict['head' + '.weight'] = model.state_dict()['head' + '.weight']
+            state_dict['head' + '.bias'] = model.state_dict()['head' + '.bias']
 
         if del_posemb:
             del state_dict['pos_embed']

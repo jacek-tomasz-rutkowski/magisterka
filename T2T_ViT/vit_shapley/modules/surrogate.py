@@ -1,28 +1,20 @@
-from collections import OrderedDict
+import argparse
 from typing import Optional
 
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-from torchvision import models as cnn_models
-import math
 from pytorch_lightning.utilities.types import OptimizerLRSchedulerConfig
 from torch.nn import functional as F
+from torch.optim import AdamW
 from transformers import get_cosine_schedule_with_warmup
-from transformers.optimization import AdamW
+
+
+# from torchvision import models as cnn_models
 
 import models.t2t_vit
-from utils import load_for_transfer_learning
-from vit_shapley.CIFAR_10_Dataset import CIFAR_10_Datamodule, apply_masks
-from collections import OrderedDict
-import argparse
-
-torch.set_float32_matmul_precision('medium')
-
-parser = argparse.ArgumentParser(description="Surrogate training")
-parser.add_argument("--num_players", required=False, default=16, type=int, help="number of players")
-
-args = parser.parse_args()
+from utils import load_checkpoint
+from vit_shapley.CIFAR_10_Dataset import CIFAR_10_Datamodule, apply_masks, PROJECT_ROOT
 
 
 class Surrogate(pl.LightningModule):
@@ -42,35 +34,32 @@ class Surrogate(pl.LightningModule):
     def __init__(
         self,
         output_dim: int,
-        target_model: Optional[nn.Module],
         learning_rate: Optional[float],
         weight_decay: Optional[float],
         decay_power: Optional[str],
         warmup_steps: Optional[int],
+        num_players: Optional[int] = None,
+        target_model: Optional[nn.Module] = None,
     ):
         super().__init__()
-        # Save arguments (output_dim, ..., warmup_steps) into self.hparams.
+        # Save arguments (output_dim, ..., num_players) into self.hparams.
         self.save_hyperparameters(ignore=["target_model"])
         self.target_model = target_model
 
         # Backbone initialization
-
         self.backbone = models.t2t_vit.t2t_vit_14(num_classes=10)
-        # state_dict = load_state_dict(self.backbone, checkpoint_path='../models/81.5_T2T_ViT_14.pth.tar',
-        #                             num_classes=10)
-        # self.backbone.load_state_dict(state_dict, strict=False)
-        # load_for_transfer_learning(self.backbone, checkpoint_path='../models/81.5_T2T_ViT_14.pth.tar',
-        #                             num_classes=10)
+        # backbone_path = PROJECT_ROOT / "saved_models/downloaded/imagenet/81.5_T2T_ViT_14.pth"
+        # backbone_path = PROJECT_ROOT / "saved_models/downloaded/cifar10/cifar10_t2t-vit_14_98.3.pth"
+        backbone_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
+        load_checkpoint(backbone_path, self.backbone, ignore_keys=["head.weight", "head.bias"])
 
         # Nullify classification head built in the backbone module and rebuild.
         head_in_features = self.backbone.head.in_features
         self.backbone.head = nn.Identity()
-
         self.head = nn.Linear(head_in_features, self.hparams["output_dim"])
 
         # Set `num_players` variable.
-        # self.num_players = 196  # 14 * 14
-        self.num_players = args.num_players
+        self.num_players = num_players or 196  # 14 * 14
 
     def forward(self, images: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
         assert masks.shape[-1] == self.num_players
@@ -119,7 +108,7 @@ class Surrogate(pl.LightningModule):
         images, masks = batch["images"], batch["masks"]
         logits = self(images, masks)  # ['logits']
         logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
-        self.log("val/loss", self._surrogate_loss(logits=logits, logits_target=logits_target))
+        self.log("test/loss", self._surrogate_loss(logits=logits, logits_target=logits_target))
 
     def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
         optimizer = AdamW(
@@ -141,33 +130,56 @@ class Surrogate(pl.LightningModule):
         return {"optimizer": optimizer, "lr_scheduler": {"scheduler": scheduler, "interval": "step"}}
 
 
-if __name__ == "__main__":
+def main() -> None:
+    torch.set_float32_matmul_precision("medium")
+
+    parser = argparse.ArgumentParser(description="Surrogate training")
+    parser.add_argument("--label", required=False, default="", type=str, help="label for checkpoints")
+    parser.add_argument("--num_players", required=True, type=int, help="number of players")
+    parser.add_argument("--lr", required=False, default=1e-5, type=float, help="learning rate")
+    parser.add_argument("--wd", required=False, default=0.0, type=float, help="weight decay")
+    parser.add_argument("--b", required=False, default=128, type=int, help="batch size")
+    parser.add_argument("--num_workers", required=False, default=0, type=int, help="number of dataloader workers")
+    args = parser.parse_args()
+
     target_model = models.t2t_vit.t2t_vit_14(num_classes=10)
+    # target_model_path = PROJECT_ROOT / "saved_models/downloaded/cifar10/cifar10_t2t-vit_14_98.3.pth"
+    target_model_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
+    load_checkpoint(target_model_path, target_model)
 
     # num_classes=10
-    checkpoint = torch.load("../../checkpoint_cifar10_T2t_vit_14/ckpt_0.01_0.0005_97.5.pth")
 
-    new_state_dict = OrderedDict()
+    surrogate = Surrogate(
+        output_dim=10,
+        target_model=target_model,
+        learning_rate=args.lr,
+        weight_decay=args.wd,
+        decay_power="cosine",
+        warmup_steps=2,
+        num_players=args.num_players,
+    )
 
-    for k, v in checkpoint.items():
-        # strip `module.` prefix
-        name = k[7:] if k.startswith("module") else k
-        new_state_dict[name] = v
+    datamodule = CIFAR_10_Datamodule(
+        num_players=args.num_players,
+        num_mask_samples=1,
+        paired_mask_samples=False,
+        batch_size=args.b,
+        num_workers=args.num_workers,
+    )
 
-    state_dict = new_state_dict
+    log_and_checkpoint_dir = (
+        PROJECT_ROOT
+        / "checkpoints"
+        / "surrogate"
+        / f"{args.label}_player{surrogate.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
+    )
+    log_and_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    trainer = pl.Trainer(
+        max_epochs=50,
+        default_root_dir=log_and_checkpoint_dir,
+    )  # logger=False)
+    trainer.fit(surrogate, datamodule)
 
-    target_model.load_state_dict(state_dict, strict=False)
 
-    surrogate = Surrogate(output_dim=10,
-                          target_model=target_model,
-                          learning_rate=1e-5,
-                          weight_decay=0.0,
-                          decay_power='cosine',
-                          warmup_steps=2)
-
-
-    CIFAR_10 = CIFAR_10_Datamodule(num_players=args.num_players, num_mask_samples=1, paired_mask_samples=False)
-
-    trainer = pl.Trainer(max_epochs=50,
-                         default_root_dir=f"./checkpoints_surrogate_num_players_lala_{surrogate.num_players}")# logger=False)
-    trainer.fit(surrogate, CIFAR_10)
+if __name__ == "__main__":
+    main()

@@ -106,8 +106,10 @@ class T2T_module(nn.Module):
 class T2T_ViT(nn.Module):
     def __init__(self, img_size=224, tokens_type='performer', in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
-                 drop_path_rate=0., norm_layer=nn.LayerNorm, token_dim=64):
+                 drop_path_rate=0., norm_layer=nn.LayerNorm, token_dim=64, pretrained_cfg=None, pretrained_cfg_overlay=None):
         super().__init__()
+        assert not pretrained_cfg_overlay, f"Received unexpected {pretrained_cfg_overlay=}"
+        assert not pretrained_cfg, f"Received unexpected {pretrained_cfg=}"
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
 
@@ -120,7 +122,7 @@ class T2T_ViT(nn.Module):
         # wcześniej było n_position=num_patches + 1
         self.pos_drop = nn.Dropout(p=drop_rate)
 
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         self.blocks = nn.ModuleList([
