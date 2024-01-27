@@ -4,41 +4,32 @@
 # LICENSE file in the root directory of this file
 # All rights reserved.
 
-"""Tranfer pretrained T2T-ViT to downstream dataset: CIFAR10/CIFAR100."""
+"""Transfer pretrained T2T-ViT to downstream dataset: CIFAR10/CIFAR100."""
+import argparse
+import os
+import time
+from pathlib import Path
+from typing import Any
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 
 import torchvision
 import torchvision.transforms as transforms
 
-import os
-import argparse
-
-from models import *
-from timm.models import *
 from utils import progress_bar
 from timm.models import create_model
-
-from models.t2t_vit import *
 from utils import load_for_transfer_learning
 
-# create model
-model = t2t_vit_14(num_classes=10)
+# Models used in --model need to be imported here.
+from models.t2t_vit import *
 
-# load the pretrained weights
-# load_for_transfer_learning(
-#     model,
-#     "./pretrained_models/T2T_ViT_14_83.3.pth.tar",
-#     use_ema=True,
-#     strict=False,
-#     num_classes=10,
-# )
-
+PROJECT_ROOT = Path(__file__).parent
 
 parser = argparse.ArgumentParser(description="PyTorch CIFAR10/CIFAR100 Training")
+parser.add_argument("--label", default="default", type=str, help="label for checkpoint")
 parser.add_argument("--lr", default=0.01, type=float, help="learning rate")
 parser.add_argument("--wd", default=5e-4, type=float, help="weight decay")
 parser.add_argument("--min-lr", default=2e-4, type=float, help="minimal learning rate")
@@ -51,23 +42,9 @@ parser.add_argument(
     default=False,
     help="Start with pretrained version of specified network (if avail)",
 )
-parser.add_argument(
-    "--num-classes",
-    type=int,
-    default=10,
-    metavar="N",
-    help="number of label classes (default: 1000)",
-)
-parser.add_argument(
-    "--model",
-    default="T2t_vit_14",
-    type=str,
-    metavar="MODEL",
-    help='Name of model to train (default: "countception"',
-)
-parser.add_argument(
-    "--drop", type=float, default=0.0, metavar="PCT", help="Dropout rate (default: 0.0)"
-)
+parser.add_argument("--num-classes", type=int, default=10, metavar="N", help="number of label classes (default: 1000)")
+parser.add_argument("--model", default="T2t_vit_14", type=str, metavar="MODEL", help="Name of model to train")
+parser.add_argument("--drop", type=float, default=0.0, metavar="PCT", help="Dropout rate (default: 0.0)")
 parser.add_argument(
     "--drop-connect",
     type=float,
@@ -75,12 +52,8 @@ parser.add_argument(
     metavar="PCT",
     help="Drop connect rate, DEPRECATED, use drop-path (default: None)",
 )
-parser.add_argument(
-    "--drop-path", type=float, default=0.1, metavar="PCT", help="Drop path rate (default: None)"
-)
-parser.add_argument(
-    "--drop-block", type=float, default=None, metavar="PCT", help="Drop block rate (default: None)"
-)
+parser.add_argument("--drop-path", type=float, default=0.1, metavar="PCT", help="Drop path rate (default: None)")
+parser.add_argument("--drop-block", type=float, default=None, metavar="PCT", help="Drop block rate (default: None)")
 parser.add_argument(
     "--gp",
     default=None,
@@ -89,24 +62,17 @@ parser.add_argument(
     help="Global pool type, one of (fast, avg, max, avgmax, avgmaxc). Model default if None.",
 )
 parser.add_argument(
-    "--img-size",
-    type=int,
-    default=224,
-    metavar="N",
-    help="Image patch size (default: None => model default)",
+    "--img-size", type=int, default=224, metavar="N", help="Image patch size (default: None => model default)"
 )
-parser.add_argument(
-    "--bn-tf",
-    action="store_true",
-    default=False,
-    help="Use Tensorflow BatchNorm defaults for models that support it (default: False)",
-)
-parser.add_argument(
-    "--bn-momentum", type=float, default=None, help="BatchNorm momentum override (if not None)"
-)
-parser.add_argument(
-    "--bn-eps", type=float, default=None, help="BatchNorm epsilon override (if not None)"
-)
+# CHANGED removed parameters not accepted by T2T_ViT
+# parser.add_argument(
+#     "--bn-tf",
+#     action="store_true",
+#     default=False,
+#     help="Use Tensorflow BatchNorm defaults for models that support it (default: False)",
+# )
+# parser.add_argument("--bn-momentum", type=float, default=None, help="BatchNorm momentum override (if not None)")
+# parser.add_argument("--bn-eps", type=float, default=None, help="BatchNorm epsilon override (if not None)")
 parser.add_argument(
     "--initial-checkpoint",
     default="",
@@ -115,29 +81,24 @@ parser.add_argument(
     help="Initialize model from this checkpoint (default: none)",
 )
 # Transfer learning
-parser.add_argument("--transfer-learning", default=True, help="Enable transfer learning")
-parser.add_argument("--transfer-model", default='./pretrained_models/81.5_T2T_ViT_14.pth.tar',
-    type=str,
-    help="Path to pretrained model for transfer learning",
-)
+parser.add_argument("--transfer-learning", default=False, help="Enable transfer learning")
+parser.add_argument("--transfer-model", type=str, default=None, help="Path to pretrained model for transfer learning")
 parser.add_argument(
-    "--transfer-ratio",
-    type=float,
-    default=0.01,
-    help="lr ratio between classifier and backbone in transfer learning",
+    "--transfer-ratio", type=float, default=0.01, help="lr ratio between classifier and backbone in transfer learning"
 )
 
 args = parser.parse_args()
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-best_acc = 0  # best test accuracy
+best_acc = 0.0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
 # Data
 print("==> Preparing data..")
 transform_train = transforms.Compose(
     [
-        transforms.Resize(args.img_size),
+        transforms.Resize(args.img_size, transforms.InterpolationMode.BILINEAR),
+        transforms.RandomRotation(10),  # CHANGED added random rotation
         transforms.RandomCrop(args.img_size, padding=(args.img_size // 8)),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
@@ -147,7 +108,7 @@ transform_train = transforms.Compose(
 
 transform_test = transforms.Compose(
     [
-        transforms.Resize(args.img_size),
+        transforms.Resize(args.img_size, transforms.InterpolationMode.BILINEAR),
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ]
@@ -155,54 +116,45 @@ transform_test = transforms.Compose(
 
 if args.dataset == "cifar10":
     args.num_classes = 10
-    trainset = torchvision.datasets.CIFAR10(
-        root="./data", train=True, download=True, transform=transform_train
-    )
-    testset = torchvision.datasets.CIFAR10(
-        root="./data", train=False, download=True, transform=transform_test
-    )
+    root = PROJECT_ROOT / "CIFAR_10_data"
+    trainset = torchvision.datasets.CIFAR10(root=root, train=True, download=True, transform=transform_train)
+    testset = torchvision.datasets.CIFAR10(root=root, train=False, download=True, transform=transform_test)
 
 elif args.dataset == "cifar100":
     args.num_classes = 100
-    trainset = torchvision.datasets.CIFAR100(
-        root="./data", train=True, download=True, transform=transform_train
-    )
-    testset = torchvision.datasets.CIFAR100(
-        root="./data", train=False, download=True, transform=transform_test
-    )
+    trainset = torchvision.datasets.CIFAR100(root="./data", train=True, download=True, transform=transform_train)
+    testset = torchvision.datasets.CIFAR100(root="./data", train=False, download=True, transform=transform_test)
 else:
     print("Please use cifar10 or cifar100 dataset.")
 
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.b, shuffle=True, num_workers=0)
-testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=0)
+dataloader_kwargs: dict[str, Any] = dict(num_workers=2, pin_memory=False, prefetch_factor=1, persistent_workers=True)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.b, shuffle=True, **dataloader_kwargs)
+testloader = torch.utils.data.DataLoader(testset, batch_size=256, shuffle=False, **dataloader_kwargs)
 
 print(f"learning rate:{args.lr}, weight decay: {args.wd}")
 # create T2T-ViT Model
 print("==> Building model..")
-# net = create_model(
-#     args.model,
-#     pretrained=args.pretrained,
-#     num_classes=args.num_classes,
-#     drop_rate=args.drop,
-#     drop_connect_rate=args.drop_connect,
-#     drop_path_rate=args.drop_path,
-#     drop_block_rate=args.drop_block,
-#     global_pool=args.gp,
-#     bn_tf=args.bn_tf,
-#     bn_momentum=args.bn_momentum,
-#     bn_eps=args.bn_eps,
-#     checkpoint_path=args.initial_checkpoint,
-#     img_size=args.img_size)
-
-net = model
+net = create_model(
+    args.model,
+    pretrained=args.pretrained,
+    num_classes=args.num_classes,
+    drop_rate=args.drop,
+    drop_connect_rate=args.drop_connect,
+    drop_path_rate=args.drop_path,
+    drop_block_rate=args.drop_block,
+    global_pool=args.gp,
+    # CHANGED removed parameters not accepted by T2T_ViT
+    # bn_tf=args.bn_tf,
+    # bn_momentum=args.bn_momentum,
+    # bn_eps=args.bn_eps,
+    checkpoint_path=args.initial_checkpoint,
+    img_size=args.img_size,
+)
 
 if args.transfer_learning:
     print("transfer learning, load t2t-vit pretrained model")
-    load_for_transfer_learning(
-        net, args.transfer_model, use_ema=True, strict=False, num_classes=args.num_classes
-
-    )
-
+    # CHANGED strict from False to True
+    load_for_transfer_learning(net, args.transfer_model, use_ema=True, strict=True, num_classes=args.num_classes)
 
 net = net.to(device)
 if device == "cuda":
@@ -245,9 +197,7 @@ def train(epoch):
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
-        outputs = net(inputs) #[:,0]
-        # it was net(inputs)[:,0] before, because we maybe need output of
-        # shape [128, 196, 10] for surrogate model
+        outputs = net(inputs)
         loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
@@ -274,8 +224,7 @@ def test(epoch):
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
-            outputs = net(inputs) #[:,0]
-            # it was outputs = net(inputs)
+            outputs = net(inputs)
             loss = criterion(outputs, targets)
 
             test_loss += loss.item()
@@ -291,27 +240,22 @@ def test(epoch):
             )
 
     # Save checkpoint.
+    # Changed: path of checkpoint.
+    checkpoint_dir = PROJECT_ROOT / "checkpoints" / "transfer" / args.dataset / f"{args.model}__{args.label}"
+    checkpoint_dir.mkdir(exist_ok=True, parents=True)
     acc = 100.0 * correct / total
     if acc > best_acc:
         print("Saving..")
-        # state = {
-        #     'net': net.state_dict(),
-        #     'acc': acc,
-        #     'epoch': epoch,
-        # }
-        # state = net.state_dict()
-        if not os.path.isdir(f"checkpoint_{args.dataset}_{args.model}"):
-            os.mkdir(f"checkpoint_{args.dataset}_{args.model}")
-        torch.save(
-            net.state_dict(),
-            f"./checkpoint_{args.dataset}_{args.model}/ckpt_{args.lr}_{args.wd}_{acc}.pth",
-        )
+        # CHANGED don't complicate the state dict. Was:
+        # state = {"net": net.state_dict(), "acc": acc, "epoch": epoch}
+        torch.save(net.state_dict(), checkpoint_dir / f"epoch-{epoch}_acc-{acc}.pth")
         best_acc = acc
 
 
-if __name__ == "__main__":
-
-    for epoch in range(start_epoch, start_epoch + 20):
-        train(epoch)
-        test(epoch)
-        scheduler.step()
+for epoch in range(start_epoch, start_epoch + 60):
+    begin_time = time.time()
+    train(epoch)
+    test(epoch)
+    scheduler.step()
+    end_time = time.time()
+    print(f"Epoch {epoch} took {end_time - begin_time:.2f} seconds in total.")
