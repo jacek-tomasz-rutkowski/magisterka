@@ -4,17 +4,16 @@ from typing import Optional
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+from pytorch_lightning.callbacks import RichProgressBar
 from pytorch_lightning.utilities.types import OptimizerLRSchedulerConfig
 from torch.nn import functional as F
 from torch.optim import AdamW
 from transformers import get_cosine_schedule_with_warmup
 
-
 # from torchvision import models as cnn_models
-
 import models.t2t_vit
 from utils import load_checkpoint
-from vit_shapley.CIFAR_10_Dataset import CIFAR_10_Datamodule, apply_masks, PROJECT_ROOT
+from vit_shapley.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks
 
 
 class Surrogate(pl.LightningModule):
@@ -47,7 +46,7 @@ class Surrogate(pl.LightningModule):
         self.target_model = target_model
 
         # Backbone initialization
-        self.backbone = models.t2t_vit.t2t_vit_14(num_classes=10)
+        self.backbone = models.t2t_vit.t2t_vit_14(num_classes=output_dim)
         # backbone_path = PROJECT_ROOT / "saved_models/downloaded/imagenet/81.5_T2T_ViT_14.pth"
         # backbone_path = PROJECT_ROOT / "saved_models/downloaded/cifar10/cifar10_t2t-vit_14_98.3.pth"
         backbone_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
@@ -86,29 +85,32 @@ class Surrogate(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         assert self.target_model is not None
-        images, masks = batch["images"], batch["masks"]
+        images, labels, masks = batch["images"], batch["labels"], batch["masks"]
 
         logits = self(images, masks)  # ['logits']
         self.target_model.eval()
         with torch.no_grad():
             logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
         loss = self._surrogate_loss(logits=logits, logits_target=logits_target)
-        self.log("train/loss", loss)
+        self.log("train/loss", loss, prog_bar=True)
+        self.log("train/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         assert self.target_model is not None
-        images, masks = batch["images"], batch["masks"]
+        images, labels, masks = batch["images"], batch["labels"], batch["masks"]
         logits = self(images, masks)  # ['logits']
         logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
-        self.log("val/loss", self._surrogate_loss(logits=logits, logits_target=logits_target))
+        self.log("val/loss", self._surrogate_loss(logits=logits, logits_target=logits_target), prog_bar=True)
+        self.log("val/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
 
     def test_step(self, batch, batch_idx):
         assert self.target_model is not None
-        images, masks = batch["images"], batch["masks"]
+        images, labels, masks = batch["images"], batch["labels"], batch["masks"]
         logits = self(images, masks)  # ['logits']
         logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
-        self.log("test/loss", self._surrogate_loss(logits=logits, logits_target=logits_target))
+        self.log("test/loss", self._surrogate_loss(logits=logits, logits_target=logits_target), prog_bar=True)
+        self.log("test/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
 
     def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
         optimizer = AdamW(
@@ -177,6 +179,7 @@ def main() -> None:
     trainer = pl.Trainer(
         max_epochs=50,
         default_root_dir=log_and_checkpoint_dir,
+        callbacks=RichProgressBar(leave=True)
     )  # logger=False)
     trainer.fit(surrogate, datamodule)
 
