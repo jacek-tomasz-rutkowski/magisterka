@@ -2,6 +2,7 @@
 __pycache__
 .mypy_cache
 *checkpoint*
+saved_models
 CIFAR_10_data
 lightning_logs
 pretrained_models
