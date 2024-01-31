@@ -13,7 +13,7 @@ from transformers import get_cosine_schedule_with_warmup
 # from torchvision import models as cnn_models
 import models.t2t_vit
 from utils import load_checkpoint
-from vit_shapley.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks
+from vit_shapley.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks, apply_masks_to_batch
 
 
 class Surrogate(pl.LightningModule):
@@ -60,9 +60,9 @@ class Surrogate(pl.LightningModule):
         # Set `num_players` variable.
         self.num_players = num_players or 196  # 14 * 14
 
-    def forward(self, images: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
-        assert masks.shape[-1] == self.num_players
-        images_masked = apply_masks(images, masks)
+    def forward(self, images_masked: torch.Tensor) -> torch.Tensor:
+        # assert masks.shape[-1] == self.num_players
+        # images_masked = apply_masks(images, masks)
         out: torch.Tensor = self.backbone(images_masked)
         logits: torch.Tensor = self.head(out)
         # [:,0].unsqueeze(1) is not needed
@@ -86,8 +86,11 @@ class Surrogate(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         assert self.target_model is not None
         images, labels, masks = batch["images"], batch["labels"], batch["masks"]
+        
+        # logits = self(images, masks)  # ['logits']
+        images_masked, masks, labels = apply_masks_to_batch(images, masks, labels)
 
-        logits = self(images, masks)  # ['logits']
+        logits = self(images_masked)  # ['logits']
         self.target_model.eval()
         with torch.no_grad():
             logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
@@ -99,7 +102,11 @@ class Surrogate(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         assert self.target_model is not None
         images, labels, masks = batch["images"], batch["labels"], batch["masks"]
-        logits = self(images, masks)  # ['logits']
+        
+        # logits = self(images, masks)  # ['logits']
+        images_masked, masks, labels = apply_masks_to_batch(images, masks, labels)
+
+        logits = self(images_masked)  # ['logits']
         logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
         self.log("val/loss", self._surrogate_loss(logits=logits, logits_target=logits_target), prog_bar=True)
         self.log("val/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
@@ -107,7 +114,10 @@ class Surrogate(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         assert self.target_model is not None
         images, labels, masks = batch["images"], batch["labels"], batch["masks"]
-        logits = self(images, masks)  # ['logits']
+        images_masked, masks, labels = apply_masks_to_batch(images, masks, labels)
+
+        logits = self(images_masked)  # ['logits']
+        # logits = self(images, masks)  # ['logits']
         logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
         self.log("test/loss", self._surrogate_loss(logits=logits, logits_target=logits_target), prog_bar=True)
         self.log("test/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)

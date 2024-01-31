@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).parent.parent  # Path to the T2T_ViT/ directory.
 
 
 def apply_masks_to_batch(
-    images: torch.Tensor, labels: torch.Tensor, masks: torch.Tensor
+    images: torch.Tensor, masks: torch.Tensor, labels: Optional[torch.Tensor] = None
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Return a batch of masked images, labels, masks (without a num_masks_per_image dimension).
 
@@ -21,8 +21,8 @@ def apply_masks_to_batch(
 
     Args:
     - images: shape (B, C, H, W).
-    - labels: shape (B,).
     - masks: shape (B, n_masks_per_image, n_players).
+    - labels: shape (B,).
 
     Returns (images, labels, masks) where:
     - images: masked to shape (B * n_masks_per_image, C, H, W).
@@ -33,11 +33,13 @@ def apply_masks_to_batch(
         masks = masks.unsqueeze(dim=1)
     B, n_masks_per_image, n_players = masks.shape
     assert images.shape[0] == B and images.shape[1] in [1, 3], f"Unexpected {images.shape=}"
-    assert labels.shape == (B,)
+    if labels:
+        assert labels.shape == (B,)
+        labels = labels.repeat_interleave(n_masks_per_image)
+    
     images_masked = apply_masks(images, masks)
-    labels = labels.repeat_interleave(n_masks_per_image)
     masks = masks.view(B * n_masks_per_image, n_players)
-    return images_masked, labels, masks
+    return images_masked, masks, labels
 
 
 def apply_masks(images: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
