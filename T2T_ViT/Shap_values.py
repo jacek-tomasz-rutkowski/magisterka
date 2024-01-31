@@ -29,7 +29,7 @@ class Shap_values():
     def fill_patches(self, patches: list, pictures: torch.Tensor) -> torch.Tensor:
         patch_size = pictures.shape[-1]//int(math.sqrt(self.num_players))
         masks = torch.zeros(pictures.shape).to(self.device)
-        for i, patch in enumerate(patches):
+        for patch in patches:
             vert, horz = patch
             masks = torchvision.transforms.functional.erase(masks,
                                                          i=vert*patch_size,
@@ -39,6 +39,19 @@ class Shap_values():
                                                          v=1)
         
         return pictures.to(self.device)*masks
+    
+    def compute_model_on_patches(self, patches: list, pictures: torch.Tensor) -> torch.Tensor:
+        pictures_ = self.fill_patches(patches, pictures)
+        return self.model(pictures_)
+    
+    def values_list(self, images: torch.Tensor) ->torch.Tensor:
+        patches = [(x,y) for x in range(int(math.sqrt(self.num_players)))\
+                    for y in range(int(math.sqrt(self.num_players)))]
+        values = []
+        for regions in self.powerset(patches):
+            values.append(self.compute_model_on_patches(regions, images))
+
+        return values
         
     def compute_dif(self, regions: list, feature: list):
         filled = self.fill_patches(regions, self.images)
@@ -67,7 +80,7 @@ if __name__ == '__main__':
     target_model_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
     load_checkpoint(target_model_path, target_model)
 
-    datamodule = CIFAR_10_Datamodule(num_players=4, 
+    datamodule = CIFAR_10_Datamodule(num_players=9, 
                                      num_mask_samples=1, 
                                      paired_mask_samples=False,
                                      num_workers=0)
@@ -83,7 +96,7 @@ if __name__ == '__main__':
 
     print('Loading finished')
 
-    Shap_vs = Shap_values(target_model, images, num_players=4)
+    Shap_vs = Shap_values(target_model, images, num_players=9)
     print(Shap_vs.shap_values([(1,1)]))
 
     print(f'time of computation is {time.time() - time_0} seconds')
