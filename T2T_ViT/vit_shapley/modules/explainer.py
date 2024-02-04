@@ -69,7 +69,8 @@ class Explainer(pl.LightningModule):
                 for _ in range(explainer_head_num_attention_blocks)
             ]
         )
-        self.attention_blocks[0].norm1 = nn.Identity()
+        if explainer_head_num_attention_blocks:
+            self.attention_blocks[0].norm1 = nn.Identity()
 
         # mlps
         mid_dim = int(explainer_head_mlp_layer_ratio * self.backbone.num_features)
@@ -109,9 +110,6 @@ class Explainer(pl.LightningModule):
             pass
         else:
             raise ValueError(f"Unknown freeze_backbone value: {freeze_backbone}")
-
-        # Set up modules for calculating metric
-        explainer_utils.set_metrics(self)
 
     def configure_optimizers(self):
         return explainer_utils.set_schedule(self)
@@ -205,7 +203,7 @@ class Explainer(pl.LightningModule):
 
         return x[:, : self.surrogate.num_players, :]  # TODO skip cls_token
 
-    def forward(self, images: torch.Tensor, surrogate_grand=None, surrogate_null=None) -> torch.Tensor:
+    def forward(self, images: torch.Tensor, surrogate_grand=None, surrogate_null=None, normalize: bool = True) -> torch.Tensor:
         """
         Forward pass.
 
@@ -224,14 +222,14 @@ class Explainer(pl.LightningModule):
         pred = self.mlps(embedding_all)  # (B, num_players, embed_dim) -> # (B, num_players, num_lcasses)
         pred = pred.tanh()
 
-        if self.normalization:
+        if normalize and self.normalization:
             if surrogate_grand is None:
                 surrogate_grand = self.grand(images).to(self.device)
             if surrogate_null is None:
                 surrogate_null = self.null(images).to(self.device)
             pred = self.normalization(pred=pred, grand=surrogate_grand, null=surrogate_null)
 
-        if self.normalization_class:
+        if normalize and self.normalization_class:
             pred = self.normalization_class(pred=pred)
 
         return cast(torch.Tensor, pred)
@@ -239,11 +237,11 @@ class Explainer(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         assert self.surrogate is not None
         # Images have shape (batch, channel, height, weight).
-        # Masks have shape: (batch, num_mask_samples, num_players).
+        # Masks have shape: (batch, num_masks_per_image, num_players).
         images, masks = batch["images"], batch["masks"]
 
         # Evaluate surrogate on masked, unmasked and fully masked inputs.
-        surrogate_values = self.surrogate_multiple_masks(images, masks)  # (batch, num_mask_samples, num_classes)
+        surrogate_values = self.surrogate_multiple_masks(images, masks)  # (batch, num_masks_per_image, num_classes)
         surrogate_grand = self.grand(images)  # (batch, num_classes)
         surrogate_null = self.null(images)  # (1, num_classes)
 
@@ -256,12 +254,13 @@ class Explainer(pl.LightningModule):
         # plus the null value for c.
         # That is: surrogate_null[.,c] + sum_p masks[b,n,p] * shap_values[b, p, c]
         values_pred = surrogate_null.unsqueeze(0) + masks.float() @ shap_values
-        # Shapes: (1, 1, num_classes) + (batch, num_mask_samples, num_players) @ (batch, num_players, num_classes)
-        # = (batch, num_mask_samples, num_classes).
+        # Shapes: (1, 1, num_classes) + (batch, num_masks_per_image, num_players) @ (batch, num_players, num_classes)
+        # = (batch, num_masks_per_image, num_classes).
 
         loss = explainer_utils.compute_metrics(
             self,
             num_players=self.surrogate.num_players,
+            shap_values=shap_values,
             values_pred=values_pred,
             values_target=surrogate_values,
             surrogate_grand=surrogate_grand,
@@ -289,6 +288,7 @@ class Explainer(pl.LightningModule):
         loss = explainer_utils.compute_metrics(
             self,
             num_players=self.surrogate.num_players,
+            shap_values=shap_values,
             values_pred=values_pred,
             values_target=surrogate_values,
             surrogate_grand=surrogate_grand,
@@ -316,6 +316,7 @@ class Explainer(pl.LightningModule):
         loss = explainer_utils.compute_metrics(
             self,
             num_players=self.surrogate.num_players,
+            shap_values=shap_values,
             values_pred=values_pred,
             values_target=surrogate_values,
             surrogate_grand=surrogate_grand,
@@ -347,6 +348,7 @@ def main() -> None:
     surrogate = Surrogate.load_from_checkpoint(
         f"{PROJECT_ROOT}/saved_models/surrogate/cifar10/_player16_lr1e-05_wd0.0_b256_epoch28.ckpt",
         target_model=target_model,
+        num_players=args.num_players
     )
 
     explainer = Explainer(

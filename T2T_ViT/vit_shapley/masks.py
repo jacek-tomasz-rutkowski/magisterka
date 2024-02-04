@@ -4,7 +4,9 @@ import numpy as np
 import torch
 
 
-def make_masks_from_player_values(num_zeroes: torch.Tensor, player_values: torch.Tensor, players_to_mask: Literal["best", "worst", "random"]) -> torch.Tensor:
+def make_masks_from_player_values(
+    num_zeroes: torch.Tensor, player_values: torch.Tensor, players_to_mask: Literal["best", "worst", "random"]
+) -> torch.Tensor:
     """
     Create masks with a given number of best/words/random players masked (zeroed).
 
@@ -64,4 +66,4 @@ def get_distances_from_center(num_players: int) -> torch.Tensor:
     hs = torch.arange(H).float() - (H - 1) / 2
     ws = torch.arange(W).float() - (W - 1) / 2
     h, w = torch.meshgrid(hs, ws, indexing="xy")
-    return torch.sqrt(h ** 2 + w ** 2).view(num_players)
+    return torch.sqrt(h**2 + w**2).view(num_players)
