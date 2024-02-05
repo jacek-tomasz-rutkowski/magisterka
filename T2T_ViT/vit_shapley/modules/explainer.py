@@ -201,7 +201,7 @@ class Explainer(pl.LightningModule):
         x = self.backbone.norm(x)
         # Shape is still (B, 1 + sequence_length, embed_dim).
 
-        return x[:, : self.surrogate.num_players, :]  # TODO skip cls_token
+        return x[:, 1:self.surrogate.num_players + 1, :]  # TODO skip cls_token
 
     def forward(self, images: torch.Tensor, surrogate_grand=None, surrogate_null=None, normalize: bool = True) -> torch.Tensor:
         """
@@ -346,7 +346,8 @@ def main() -> None:
     # load_checkpoint(target_model_path, target_model)
 
     surrogate = Surrogate.load_from_checkpoint(
-        f"{PROJECT_ROOT}/saved_models/surrogate/cifar10/_player16_lr1e-05_wd0.0_b256_epoch28.ckpt",
+        # PROJECT_ROOT / "saved_models/surrogate/cifar10/_player16_lr1e-05_wd0.0_b256_epoch28.ckpt",
+        PROJECT_ROOT / "saved_models/surrogate/cifar10/_player196_lr1e-05_wd0.0_b128_epoch49.ckpt",
         target_model=target_model,
         num_players=args.num_players
     )
