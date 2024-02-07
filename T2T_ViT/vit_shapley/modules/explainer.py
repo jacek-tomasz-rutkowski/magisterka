@@ -198,10 +198,16 @@ class Explainer(pl.LightningModule):
             x = blk(x)
 
         # Apply layer normalization.
-        x = self.backbone.norm(x)
-        # Shape is still (B, 1 + sequence_length, embed_dim).
+        x = self.backbone.norm(x)[:, 1:, :]
+        # Shape is now (B, sequence_length, embed_dim).
 
-        return x[:, 1:self.surrogate.num_players + 1, :]  # TODO skip cls_token
+        conv = torch.nn.Conv1d(in_channels=x.shape[1], 
+                               out_channels=self.num_players, 
+                               kernel_size=3, 
+                               stride=1, 
+                               padding=1)
+
+        return conv(x) # TODO skip cls_token
 
     def forward(self, images: torch.Tensor, surrogate_grand=None, surrogate_null=None, normalize: bool = True) -> torch.Tensor:
         """
