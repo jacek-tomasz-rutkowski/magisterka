@@ -1,5 +1,6 @@
 import argparse
 from typing import Literal, Optional, cast
+import math
 
 import pytorch_lightning as pl
 import torch
@@ -200,14 +201,39 @@ class Explainer(pl.LightningModule):
         # Apply layer normalization.
         x = self.backbone.norm(x)[:, 1:, :]
         # Shape is now (B, sequence_length, embed_dim).
+        if self.surrogate.num_players == 196:
+            return x
 
-        conv = torch.nn.Conv1d(in_channels=x.shape[1], 
-                               out_channels=self.num_players, 
-                               kernel_size=3, 
-                               stride=1, 
-                               padding=1)
+        x = x.permute(0,2,1)
+        x = x.view(x.shape[0], x.shape[1],
+                   int(math.sqrt(x.shape[2])), 
+                   int(math.sqrt(x.shape[2])))
+        if self.surrogate.num_players == 81:
+            conv = torch.nn.Conv2d(in_channels=x.shape[1], 
+                               out_channels=x.shape[1], 
+                               kernel_size=6,
+                               stride=1,
+                               padding=0).to(self.device)
 
-        return conv(x) # TODO skip cls_token
+        if self.surrogate.num_players == 16:
+            conv = torch.nn.Conv2d(in_channels=x.shape[1], 
+                               out_channels=x.shape[1], 
+                               kernel_size=5,
+                               stride=3,
+                               padding=1).to(self.device)
+        
+        if self.surrogate.num_players == 9:
+            conv = torch.nn.Conv2d(in_channels=x.shape[1], 
+                               out_channels=x.shape[1], 
+                               kernel_size=7,
+                               stride=3,
+                               padding=0).to(self.device)
+        
+        x = conv(x) # shape is now (B, embed_dim, sqrt(num_players), sqrt(num_players))
+        x = x.view(x.shape[0], x.shape[1], -1).permute(0,2,1)
+        # (B, num_players, embed_dim)
+
+        return x # TODO skip cls_token
 
     def forward(self, images: torch.Tensor, surrogate_grand=None, surrogate_null=None, normalize: bool = True) -> torch.Tensor:
         """
@@ -352,8 +378,8 @@ def main() -> None:
     # load_checkpoint(target_model_path, target_model)
 
     surrogate = Surrogate.load_from_checkpoint(
-        # PROJECT_ROOT / "saved_models/surrogate/cifar10/_player16_lr1e-05_wd0.0_b256_epoch28.ckpt",
-        PROJECT_ROOT / "saved_models/surrogate/cifar10/_player196_lr1e-05_wd0.0_b128_epoch49.ckpt",
+        PROJECT_ROOT / "saved_models/surrogate/cifar10/_player16_lr1e-05_wd0.0_b256_epoch28.ckpt",
+        # PROJECT_ROOT / "saved_models/surrogate/cifar10/_player196_lr1e-05_wd0.0_b128_epoch49.ckpt",
         target_model=target_model,
         num_players=args.num_players
     )
