@@ -240,15 +240,34 @@ class Explainer(pl.LightningModule):
 
         if self.surrogate.num_players == 196:
             embedding_all = x
-        else:
-            x = x.permute(0,2,1)
-            x = x.view(x.shape[0], x.shape[1],
-                    int(math.sqrt(x.shape[2])), 
-                    int(math.sqrt(x.shape[2])))
-            # shape (b, embed_dim, sqrt(nseq_len), sqrt(seq_len))
-            # convolutions reshape to appropriate dimensions
-            x = self.conv(x) # shape (b, embed_dim, sqrt(num_players), sqrt(num_players))
-            embedding_all = x.flatten(2,3).permute(0,2,1)
+
+        # if the number of players is smaller then 14*14 we take 
+        # centers of images
+        elif self.surrogate.num_players == 16:
+            x = x.view(x.shape[0],
+                       int(math.sqrt(x.shape[1])),
+                       int(math.sqrt(x.shape[1])),
+                       x.shape[2])
+            
+            indices = [i*14//4 for i in range(4)]
+            embedding_all = x[:,indices][:,:,indices].flatten(1,2)
+        
+        elif self.surrogate.num_players == 25:
+            indices = [i*14//5 for i in range(5)]
+            embedding_all = x[indices,:][:,indices]
+
+        elif self.surrogate.num_players == 36:
+            indices = [i*14//6 for i in range(6)]
+            embedding_all = x[indices,:][:,indices]
+        # else:
+        #     x = x.permute(0,2,1)
+        #     x = x.view(x.shape[0], x.shape[1],
+        #             int(math.sqrt(x.shape[2])), 
+        #             int(math.sqrt(x.shape[2])))
+        #     # shape (b, embed_dim, sqrt(nseq_len), sqrt(seq_len))
+        #     # convolutions reshape to appropriate dimensions
+        #     x = self.conv(x) # shape (b, embed_dim, sqrt(num_players), sqrt(num_players))
+        #     embedding_all = x.flatten(2,3).permute(0,2,1)
             # (b, num_players, embed_dim)
 
 
