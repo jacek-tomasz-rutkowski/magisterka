@@ -82,6 +82,27 @@ class Explainer(pl.LightningModule):
             nn.Linear(in_features=mid_dim, out_features=output_dim),
         )
 
+        if self.surrogate.num_players == 81:
+            self.conv = torch.nn.Conv2d(in_channels=self.backbone.num_features, 
+                                out_channels=self.backbone.num_features, 
+                                kernel_size=6,
+                                stride=1,
+                                padding=0).to(self.device)
+
+        if self.surrogate.num_players == 16:
+            self.conv = torch.nn.Conv2d(in_channels=self.backbone.num_features, 
+                                out_channels=self.backbone.num_features, 
+                                kernel_size=5,
+                                stride=3,
+                                padding=1).to(self.device)
+            
+        if self.surrogate.num_players == 9:
+            self.conv = torch.nn.Conv2d(in_channels=self.backbone.num_features, 
+                                out_channels=self.backbone.num_features, 
+                                kernel_size=7,
+                                stride=3,
+                                padding=0).to(self.device)
+
         # Set up normalization.
         # First we do "additive efficient normalization",
         # which means adding a constant to ensure that (for each item in the batch and each class)
@@ -201,37 +222,6 @@ class Explainer(pl.LightningModule):
         # Apply layer normalization.
         x = self.backbone.norm(x)[:, 1:, :]
         # Shape is now (B, sequence_length, embed_dim).
-        if self.surrogate.num_players == 196:
-            return x
-
-        x = x.permute(0,2,1)
-        x = x.view(x.shape[0], x.shape[1],
-                   int(math.sqrt(x.shape[2])), 
-                   int(math.sqrt(x.shape[2])))
-        if self.surrogate.num_players == 81:
-            conv = torch.nn.Conv2d(in_channels=x.shape[1], 
-                               out_channels=x.shape[1], 
-                               kernel_size=6,
-                               stride=1,
-                               padding=0).to(self.device)
-
-        if self.surrogate.num_players == 16:
-            conv = torch.nn.Conv2d(in_channels=x.shape[1], 
-                               out_channels=x.shape[1], 
-                               kernel_size=5,
-                               stride=3,
-                               padding=1).to(self.device)
-        
-        if self.surrogate.num_players == 9:
-            conv = torch.nn.Conv2d(in_channels=x.shape[1], 
-                               out_channels=x.shape[1], 
-                               kernel_size=7,
-                               stride=3,
-                               padding=0).to(self.device)
-        
-        x = conv(x) # shape is now (B, embed_dim, sqrt(num_players), sqrt(num_players))
-        x = x.view(x.shape[0], x.shape[1], -1).permute(0,2,1)
-        # (B, num_players, embed_dim)
 
         return x # TODO skip cls_token
 
@@ -246,7 +236,21 @@ class Explainer(pl.LightningModule):
 
         Returns predictions of shape (batch, num_players, num_classes).
         """
-        embedding_all = self.backbone(x=images)  # (B, num_players, embed_dim)
+        x = self.backbone(x=images)  # (B, seq_length, embed_dim)
+
+        if self.surrogate.num_players == 196:
+            embedding_all = x
+        else:
+            x = x.permute(0,2,1)
+            x = x.view(x.shape[0], x.shape[1],
+                    int(math.sqrt(x.shape[2])), 
+                    int(math.sqrt(x.shape[2])))
+            # shape (b, embed_dim, sqrt(nseq_len), sqrt(seq_len))
+            # convolutions reshape to appropriate dimensions
+            x = self.conv(x) # shape (b, embed_dim, sqrt(num_players), sqrt(num_players))
+            embedding_all = x.flatten(2,3).permute(0,2,1)
+            # (b, num_players, embed_dim)
+
 
         for layer_module in self.attention_blocks:
             embedding_all, _ = layer_module(embedding_all, embedding_all, embedding_all, need_weights=False)
