@@ -49,10 +49,12 @@ class Explainer(pl.LightningModule):
         weight_decay: Optional[float],
         decay_power: Optional[str],
         warmup_steps: Optional[int],
+        use_convolution: bool = True,
         surrogate: Optional[pl.LightningModule] = None,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["surrogate"])
+        assert surrogate is not None
         self.surrogate = surrogate
 
         self.__null: Optional[torch.Tensor] = None
@@ -82,26 +84,30 @@ class Explainer(pl.LightningModule):
             nn.Linear(in_features=mid_dim, out_features=output_dim),
         )
 
-        if self.surrogate.num_players == 81:
-            self.conv = torch.nn.Conv2d(in_channels=self.backbone.num_features, 
-                                out_channels=self.backbone.num_features, 
-                                kernel_size=6,
-                                stride=1,
-                                padding=0).to(self.device)
-
-        if self.surrogate.num_players == 16:
-            self.conv = torch.nn.Conv2d(in_channels=self.backbone.num_features, 
-                                out_channels=self.backbone.num_features, 
-                                kernel_size=5,
-                                stride=3,
-                                padding=1).to(self.device)
-            
-        if self.surrogate.num_players == 9:
-            self.conv = torch.nn.Conv2d(in_channels=self.backbone.num_features, 
-                                out_channels=self.backbone.num_features, 
-                                kernel_size=7,
-                                stride=3,
-                                padding=0).to(self.device)
+        self.use_convolution = use_convolution
+        # https://ezyang.github.io/convolution-visualizer/index.html
+        num_players_to_conv2d_params = {
+            4: dict(kernel_size=7, padding=0, stride=7),
+            9: dict(kernel_size=6, padding=1, stride=5),
+            16: dict(kernel_size=4, padding=1, stride=4),
+            25: dict(kernel_size=4, padding=1, stride=3),  # or (2,0,3)
+            36: dict(kernel_size=4, padding=1, stride=2),
+            49: dict(kernel_size=2, padding=0, stride=2),
+            64: dict(kernel_size=2, padding=1, stride=2),
+            81: dict(kernel_size=6, padding=0, stride=1),
+            100: dict(kernel_size=5, padding=0, stride=1),
+            121: dict(kernel_size=4, padding=0, stride=1),
+            144: dict(kernel_size=3, padding=0, stride=1),
+            169: dict(kernel_size=2, padding=0, stride=1),
+            196: dict(kernel_size=1, padding=0, stride=1),
+        }
+        conv2d_params = num_players_to_conv2d_params[self.surrogate.num_players]
+        if use_convolution:
+            self.conv = torch.nn.Conv2d(in_channels=self.backbone.num_features,
+                out_channels=self.backbone.num_features,
+                kernel_size=conv2d_params['kernel_size'],
+                stride=conv2d_params['stride'],
+                padding=conv2d_params['padding']).to(self.device)
 
         # Set up normalization.
         # First we do "additive efficient normalization",
@@ -223,7 +229,7 @@ class Explainer(pl.LightningModule):
         x = self.backbone.norm(x)[:, 1:, :]
         # Shape is now (B, sequence_length, embed_dim).
 
-        return x # TODO skip cls_token
+        return x
 
     def forward(self, images: torch.Tensor, surrogate_grand=None, surrogate_null=None, normalize: bool = True) -> torch.Tensor:
         """
@@ -236,45 +242,40 @@ class Explainer(pl.LightningModule):
 
         Returns predictions of shape (batch, num_players, num_classes).
         """
-        x = self.backbone(x=images)  # (B, seq_length, embed_dim)
+        assert self.surrogate is not None
 
-        if self.surrogate.num_players == 196:
+        x = self.backbone(x=images)  # (B, seq_length, embed_dim)
+        B, seq_length, embed_dim = x.shape
+        r = int(math.sqrt(seq_length))
+        assert seq_length == r * r, f"Expected {seq_length=} to be a perfect square."
+
+        # Reshape to (B, r, r, embed_dim).
+        x = x.view(B, r, r, embed_dim)
+
+        s = int(math.sqrt(self.surrogate.num_players))
+        assert s * s == self.surrogate.num_players, f"Expected {self.surrogate.num_players=} to be a perfect square."
+
+        # Adapt to (B, s, s, embed_dim).
+        if r == s:
+            embedding_all = x
+        elif self.use_convolution:
+            x = x.permute(0, 3, 1, 2)  # (B, embed_dim, r, r)
+            x = self.conv(x)  # (B, embed_dim, s, s)
+            assert x.shape[2] == x.shape[3] == s
+            x = x.permute(0, 2, 3, 1)  # (B, s, s, embed_dim)
+            embedding_all = x
+        else:
+            indices = [int((i + 0.5) * 14 / s) for i in range(s)]
+            x = x[:, indices, :, :][:, :, indices, :]  # (B, s, s, embed_dim)
             embedding_all = x
 
-        # if the number of players is smaller then 14*14 we take 
-        # centers of images
-        elif self.surrogate.num_players == 16:
-            x = x.view(x.shape[0],
-                       int(math.sqrt(x.shape[1])),
-                       int(math.sqrt(x.shape[1])),
-                       x.shape[2])
-            
-            indices = [i*14//4 for i in range(4)]
-            embedding_all = x[:,indices][:,:,indices].flatten(1,2)
-        
-        elif self.surrogate.num_players == 25:
-            indices = [i*14//5 for i in range(5)]
-            embedding_all = x[indices,:][:,indices]
-
-        elif self.surrogate.num_players == 36:
-            indices = [i*14//6 for i in range(6)]
-            embedding_all = x[indices,:][:,indices]
-        # else:
-        #     x = x.permute(0,2,1)
-        #     x = x.view(x.shape[0], x.shape[1],
-        #             int(math.sqrt(x.shape[2])), 
-        #             int(math.sqrt(x.shape[2])))
-        #     # shape (b, embed_dim, sqrt(nseq_len), sqrt(seq_len))
-        #     # convolutions reshape to appropriate dimensions
-        #     x = self.conv(x) # shape (b, embed_dim, sqrt(num_players), sqrt(num_players))
-        #     embedding_all = x.flatten(2,3).permute(0,2,1)
-            # (b, num_players, embed_dim)
-
+        # Flatten to (B, num_players, embed_dim)
+        embedding_all = embedding_all.flatten(1, 2)
 
         for layer_module in self.attention_blocks:
             embedding_all, _ = layer_module(embedding_all, embedding_all, embedding_all, need_weights=False)
 
-        pred = self.mlps(embedding_all)  # (B, num_players, embed_dim) -> # (B, num_players, num_lcasses)
+        pred = self.mlps(embedding_all)  # (B, num_players, embed_dim) -> # (B, num_players, num_classes)
         pred = pred.tanh()
 
         if normalize and self.normalization:
