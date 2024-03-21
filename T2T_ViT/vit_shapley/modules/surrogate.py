@@ -8,7 +8,8 @@ from pytorch_lightning.callbacks import RichProgressBar
 from pytorch_lightning.utilities.types import OptimizerLRSchedulerConfig
 from torch.nn import functional as F
 from torch.optim import AdamW
-from transformers import get_cosine_schedule_with_warmup
+from transformers import get_cosine_schedule_with_warmup, SwinConfig, \
+    SwinForImageClassification
 
 # from torchvision import models as cnn_models
 import models.t2t_vit
@@ -34,6 +35,7 @@ class Surrogate(pl.LightningModule):
     def __init__(
         self,
         output_dim: int,
+        backbone_name: str,
         learning_rate: Optional[float],
         weight_decay: Optional[float],
         decay_power: Optional[str],
@@ -44,19 +46,40 @@ class Surrogate(pl.LightningModule):
         super().__init__()
         # Save arguments (output_dim, ..., num_players) into self.hparams.
         self.save_hyperparameters(ignore=["target_model"])
+        self.backbone_name = backbone_name
         self.target_model = target_model
 
         # Backbone initialization
-        self.backbone = models.t2t_vit.t2t_vit_14(num_classes=output_dim)
-        # backbone_path = PROJECT_ROOT / "saved_models/downloaded/imagenet/81.5_T2T_ViT_14.pth"
-        # backbone_path = PROJECT_ROOT / "saved_models/downloaded/cifar10/cifar10_t2t-vit_14_98.3.pth"
-        backbone_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
-        load_checkpoint(backbone_path, self.backbone, ignore_keys=["head.weight", "head.bias"])
+        if self.backbone_name == 't2t_vit':
+            self.backbone = models.t2t_vit.t2t_vit_14(num_classes=output_dim)
+            # backbone_path = PROJECT_ROOT / "saved_models/downloaded/imagenet/81.5_T2T_ViT_14.pth"
+            # backbone_path = PROJECT_ROOT / "saved_models/downloaded/cifar10/cifar10_t2t-vit_14_98.3.pth"
+            backbone_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
+            load_checkpoint(backbone_path, self.backbone, ignore_keys=["head.weight", "head.bias"])        
+            
+            # Nullify classification head built in the backbone module and rebuild.
+            head_in_features = self.backbone.head.in_features
+            self.backbone.head = nn.Identity()
+            self.head = nn.Linear(head_in_features, self.hparams["output_dim"])
+            
 
-        # Nullify classification head built in the backbone module and rebuild.
-        head_in_features = self.backbone.head.in_features
-        self.backbone.head = nn.Identity()
-        self.head = nn.Linear(head_in_features, self.hparams["output_dim"])
+        elif self.backbone_name == 'swin':
+
+            configuration = SwinConfig()
+            self.backbone = SwinForImageClassification(configuration) \
+                            .from_pretrained("microsoft/swin-tiny-patch4-window7-224",\
+                            num_labels=10,
+                            ignore_mismatched_sizes=True)\
+                            .to(self.device)
+
+            backbone_path = PROJECT_ROOT / "checkpoints/transfer/cifar10/default/swin_epoch-4_acc-96.06.pth"
+            state_dict = torch.load(backbone_path)
+            self.backbone.load_state_dict(state_dict, strict=False)
+
+            # Nullify classification head built in the backbone module and rebuild.
+            head_in_features = self.backbone.classifier.in_features
+            self.backbone.classifier = nn.Identity()
+            self.head = nn.Linear(head_in_features, self.hparams["output_dim"])
 
         # Set `num_players` variable.
         self.num_players = num_players or 196  # 14 * 14
@@ -66,8 +89,13 @@ class Surrogate(pl.LightningModule):
         Input: images_masked (B, C, H, W).
         Output: logits (B, output_dim).
         """
-        out: torch.Tensor = self.backbone(images_masked)
-        logits: torch.Tensor = self.head(out)  # [:,0].unsqueeze(1) is not needed
+        if self.backbone_name == 't2t_vit':
+            out: torch.Tensor = self.backbone(images_masked)
+            logits: torch.Tensor = self.head(out)
+        elif self.backbone_name == 'swin':
+            out: torch.Tensor = self.backbone(images_masked).logits
+            logits: torch.Tensor = self.head(out)
+            
         return logits
 
     @staticmethod
@@ -94,7 +122,10 @@ class Surrogate(pl.LightningModule):
         logits = self(images_masked)  # ['logits']
         self.target_model.eval()
         with torch.no_grad():
-            logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
+            if self.backbone_name == 'swin':
+                logits_target = self.target_model(images.to(self.target_model.device)).logits.to(self.device)  # ['logits']
+            else:
+                logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
         loss = self._surrogate_loss(logits=logits, logits_target=logits_target)
         self.log("train/loss", loss, prog_bar=True)
         self.log("train/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
@@ -108,7 +139,11 @@ class Surrogate(pl.LightningModule):
         images_masked, masks, labels = apply_masks_to_batch(images, masks, labels)
 
         logits = self(images_masked)  # ['logits']
-        logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
+        if self.backbone_name == 'swin':
+            logits_target = self.target_model(images.to(self.target_model.device)).logits.to(self.device)  # ['logits']
+        else:
+            logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
+       
         self.log("val/loss", self._surrogate_loss(logits=logits, logits_target=logits_target), prog_bar=True)
         self.log("val/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
 
@@ -119,7 +154,11 @@ class Surrogate(pl.LightningModule):
 
         logits = self(images_masked)  # ['logits']
         # logits = self(images, masks)  # ['logits']
-        logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
+        if self.backbone_name == 'swin':
+            logits_target = self.target_model(images.to(self.target_model.device)).logits.to(self.device)  # ['logits']
+        else:
+            logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)  # ['logits']
+       
         self.log("test/loss", self._surrogate_loss(logits=logits, logits_target=logits_target), prog_bar=True)
         self.log("test/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
 
@@ -162,11 +201,22 @@ def main() -> None:
     target_model_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
     load_checkpoint(target_model_path, target_model)
 
-    # num_classes=10
+    configuration = SwinConfig()
+    target_model_2 = SwinForImageClassification(configuration) \
+                            .from_pretrained("microsoft/swin-tiny-patch4-window7-224",\
+                            num_labels=10,
+                            ignore_mismatched_sizes=True)
+    #                         .cuda()
+
+    target_model_2_path = PROJECT_ROOT / "checkpoints/transfer/cifar10/default/swin_epoch-4_acc-96.06.pth"
+    state_dict = torch.load(target_model_2_path)
+    target_model_2.load_state_dict(state_dict, strict=False)
+
 
     surrogate = Surrogate(
         output_dim=10,
-        target_model=target_model,
+        backbone_name='swin',
+        target_model=target_model_2,
         learning_rate=args.lr,
         weight_decay=args.wd,
         decay_power="cosine",
@@ -190,7 +240,7 @@ def main() -> None:
     )
     log_and_checkpoint_dir.mkdir(parents=True, exist_ok=True)
     trainer = pl.Trainer(
-        max_epochs=50,
+        max_epochs=5,
         default_root_dir=log_and_checkpoint_dir,
         callbacks=RichProgressBar(leave=True)
     )  # logger=False)
