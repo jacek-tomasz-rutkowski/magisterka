@@ -190,6 +190,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Surrogate training")
     parser.add_argument("--label", required=False, default="", type=str, help="label for checkpoints")
     parser.add_argument("--num_players", required=True, type=int, help="number of players")
+    parser.add_argument("--backbone_name", required=True, type=str, help="name of backbone")
     parser.add_argument("--lr", required=False, default=1e-5, type=float, help="learning rate")
     parser.add_argument("--wd", required=False, default=0.0, type=float, help="weight decay")
     parser.add_argument("--b", required=False, default=128, type=int, help="batch size")
@@ -206,7 +207,6 @@ def main() -> None:
                             .from_pretrained("microsoft/swin-tiny-patch4-window7-224",\
                             num_labels=10,
                             ignore_mismatched_sizes=True)
-    #                         .cuda()
 
     target_model_2_path = PROJECT_ROOT / "checkpoints/transfer/cifar10/default/swin_epoch-4_acc-96.06.pth"
     state_dict = torch.load(target_model_2_path)
@@ -215,7 +215,7 @@ def main() -> None:
 
     surrogate = Surrogate(
         output_dim=10,
-        backbone_name='swin',
+        backbone_name=args.backbone_name,
         target_model=target_model_2,
         learning_rate=args.lr,
         weight_decay=args.wd,
@@ -236,11 +236,11 @@ def main() -> None:
         PROJECT_ROOT
         / "checkpoints"
         / "surrogate"
-        / f"{args.label}_player{surrogate.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
+        / f"{args.label}_{args.backbone_name}_player{surrogate.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
     )
     log_and_checkpoint_dir.mkdir(parents=True, exist_ok=True)
     trainer = pl.Trainer(
-        max_epochs=5,
+        max_epochs=20,
         default_root_dir=log_and_checkpoint_dir,
         callbacks=RichProgressBar(leave=True)
     )  # logger=False)
