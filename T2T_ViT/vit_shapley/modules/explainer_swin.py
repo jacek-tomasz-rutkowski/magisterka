@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 from pytorch_lightning.callbacks import RichProgressBar
 from transformers import SwinConfig, \
-    SwinForImageClassification
+    SwinForImageClassification, ViTForImageClassification
 
 
 import models.t2t_vit
@@ -94,6 +94,20 @@ class Explainer(pl.LightningModule):
             self.backbone.pooling = nn.Identity()
             self.backbone.classifier = nn.Identity()
             self.head = nn.Linear(head_in_features, self.hparams["output_dim"])
+    
+        else:
+            vit_model = ViTForImageClassification.from_pretrained("google/vit-base-patch16-224", 
+                                                                    num_labels=10,
+                                                                    ignore_mismatched_sizes=True).to(self.device)
+            backbone_path = PROJECT_ROOT / "saved_models/transferred/cifar10/vit_epoch-47_acc-98.2.pth"     
+            state_dict = torch.load(backbone_path)
+            vit_model.load_state_dict(state_dict, strict=False)
+
+            self.backbone = torch.nn.Sequential(vit_model.vit.embeddings, vit_model.vit.encoder)
+
+            head_in_features = vit_model.classifier.in_features
+            self.head = nn.Linear(head_in_features, self.hparams["output_dim"]).to(self.device)
+            # output of the backbone is (b, 197, 768)
 
 
         self.attention_blocks = nn.ModuleList(
@@ -259,8 +273,6 @@ class Explainer(pl.LightningModule):
         x = self.backbone.norm(x)[:, 1:, :]
         # Shape is now (B, sequence_length, embed_dim).
 
-        print(f'backbone_forward_features shape is {x.shape}')
-
         return x
 
     def forward(self, images: torch.Tensor, surrogate_grand=None, surrogate_null=None, normalize: bool = True) -> torch.Tensor:
@@ -279,11 +291,14 @@ class Explainer(pl.LightningModule):
         if self.backbone_name == 'swin':
             x = self.backbone.swin(images).last_hidden_state
 
+        elif self.backbone_name == 'vit':
+            x = self.backbone(images).last_hidden_state[:,1:]
+            # output of vit is of size (b,197,768), we want (b,196,768)
+
         else:
             x = self.backbone(images).logits  # (B, seq_length, embed_dim)
 
-        print(f'x shape after backbone is {x.shape}')
-        
+
         B, seq_length, embed_dim = x.shape
         r = int(math.sqrt(seq_length))
         assert seq_length == r * r, f"Expected {seq_length=} to be a perfect square."
@@ -437,31 +452,52 @@ def main() -> None:
 
     parser.add_argument("--use_conv", required=True, default=False, type=bool, 
                         help="convolutions to match dim num_players")
+
+    parser.add_argument("--target_model_name", required=False, default='vit', type=str, help="name of the target model")
+    parser.add_argument("--backbone_name", required=False, default='vit', type=str, help="name of the backbone")    
     parser.add_argument("--freeze_backbone", required=True, default='none', type=str, 
                         help="freeze the backbone")
 
     args = parser.parse_args()
+    
+    if args.target_model_name == 't2t_vit':
+        target_model = models.t2t_vit.t2t_vit_14(num_classes=10)
+        # target_model_path = PROJECT_ROOT / "saved_models/downloaded/cifar10/cifar10_t2t-vit_14_98.3.pth"
+        target_model_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
+    
+    elif args.target_model_name == 'swin':
+        configuration = SwinConfig()
+        target_model = SwinForImageClassification(configuration) \
+                                .from_pretrained("microsoft/swin-tiny-patch4-window7-224",\
+                                num_labels=10,
+                                ignore_mismatched_sizes=True)
 
-    # target_model = models.t2t_vit.t2t_vit_14(num_classes=10)
+        target_model_path = PROJECT_ROOT / "saved_models/transferred/cifar10/swin_epoch-37_acc-97.34.pth"
+    
+    else:
+        target_model = ViTForImageClassification.from_pretrained("google/vit-base-patch16-224", 
+                                                                 num_labels=10,
+                                                                 ignore_mismatched_sizes=True)
+        target_model_path = PROJECT_ROOT / "saved_models/transferred/cifar10/vit_epoch-47_acc-98.2.pth"     
 
-    configuration = SwinConfig()
-    target_model_2 = SwinForImageClassification(configuration) \
-                            .from_pretrained("microsoft/swin-tiny-patch4-window7-224",\
-                            num_labels=10,
-                            ignore_mismatched_sizes=True)
 
-    surrogate = Surrogate.load_from_checkpoint(
-        # PROJECT_ROOT / "saved_models/surrogate/cifar10/_player16_lr1e-05_wd0.0_b256_epoch28.ckpt",
-        PROJECT_ROOT / "checkpoints/surrogate/_swin_player16_lr1e-05_wd0.0_b128/lightning_logs/version_0/checkpoints/epoch=19-step=7040.ckpt",
-        target_model=target_model_2,
-        backbone_name='swin',
+    surrogate = Surrogate(
+        output_dim=10,
+        backbone_name=args.backbone_name,
+        target_model=target_model,
+        learning_rate=args.lr,
+        weight_decay=args.wd,
+        decay_power="cosine",
+        warmup_steps=2,
         num_players=args.num_players,
-        strict=False
     )
+
+    checkpoint = torch.load(target_model_path)
+    surrogate.load_state_dict(checkpoint, strict=False)
 
     explainer = Explainer(
         output_dim=10,
-        backbone_name='swin',
+        backbone_name=args.backbone_name,
         explainer_head_num_attention_blocks=args.num_atts,
         explainer_head_mlp_layer_ratio=args.mlp_ratio,
         explainer_norm=True,
@@ -490,7 +526,7 @@ def main() -> None:
         PROJECT_ROOT
         / "checkpoints"
         / "explainer"
-        / f"use_conv_{args.use_conv}_freeze_{args.freeze_backbone}_{args.label}_player{args.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
+        / f"use_conv_{args.use_conv}_{args.backbone_name}_freeze_{args.freeze_backbone}_{args.label}_player{args.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
     )
     log_and_checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
