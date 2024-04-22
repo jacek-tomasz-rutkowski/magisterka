@@ -11,7 +11,7 @@ from torch.optim import AdamW
 from transformers import get_cosine_schedule_with_warmup, SwinConfig, \
     SwinForImageClassification, ViTForImageClassification
 
-# from torchvision import models as cnn_models
+
 import models.t2t_vit
 from utils import load_checkpoint
 from vit_shapley.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks_to_batch
@@ -217,7 +217,9 @@ def main() -> None:
         target_model = models.t2t_vit.t2t_vit_14(num_classes=10)
         # target_model_path = PROJECT_ROOT / "saved_models/downloaded/cifar10/cifar10_t2t-vit_14_98.3.pth"
         target_model_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
-        load_checkpoint(target_model_path, target_model)
+        # load_checkpoint(target_model_path, target_model)
+        state_dict = torch.load(target_model_path)
+        target_model.load_state_dict(state_dict, strict=False)
     
     elif args.target_model_name == 'swin':
         configuration = SwinConfig()

@@ -69,9 +69,12 @@ class Explainer(pl.LightningModule):
             self.backbone = models.t2t_vit.t2t_vit_14(num_classes=output_dim)
             # backbone_path = PROJECT_ROOT / "saved_models/downloaded/imagenet/81.5_T2T_ViT_14.pth"
             # backbone_path = PROJECT_ROOT / "saved_models/downloaded/cifar10/cifar10_t2t-vit_14_98.3.pth"
-            backbone_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
-            load_checkpoint(backbone_path, self.backbone, ignore_keys=["head.weight", "head.bias"])        
+            backbone_path = PROJECT_ROOT / "saved_models/surrogate/cifar10/_t2t_vit_player16_lr0.0001_wd0.0_b256_epoch19.ckpt"
+            # load_checkpoint(backbone_path, self.backbone, ignore_keys=["head.weight", "head.bias"])
             
+            state_dict = torch.load(backbone_path)
+            self.backbone.load_state_dict(state_dict, strict=False)
+
             # Nullify classification head built in the backbone module and rebuild.
             head_in_features = self.backbone.head.in_features
             self.backbone.head = nn.Identity()
@@ -85,7 +88,8 @@ class Explainer(pl.LightningModule):
                             ignore_mismatched_sizes=True)\
                             .to(self.device)
 
-            backbone_path = PROJECT_ROOT / "checkpoints/transfer/cifar10/default/swin_epoch-4_acc-96.06.pth"
+
+            backbone_path = PROJECT_ROOT / "saved_models/surrogate/cifar10/_swin_player16_lr0.0001_wd0.0_b256_epoch19.ckpt"
             state_dict = torch.load(backbone_path)
             self.backbone.load_state_dict(state_dict, strict=False)
 
@@ -99,7 +103,7 @@ class Explainer(pl.LightningModule):
             vit_model = ViTForImageClassification.from_pretrained("google/vit-base-patch16-224", 
                                                                     num_labels=10,
                                                                     ignore_mismatched_sizes=True).to(self.device)
-            backbone_path = PROJECT_ROOT / "saved_models/transferred/cifar10/vit_epoch-47_acc-98.2.pth"     
+            backbone_path = PROJECT_ROOT / "saved_models/surrogate/cifar10/_vit_player16_lr0.0001_wd0.0_b256_epoch19.ckpt"
             state_dict = torch.load(backbone_path)
             vit_model.load_state_dict(state_dict, strict=False)
 
@@ -289,14 +293,16 @@ class Explainer(pl.LightningModule):
         assert self.surrogate is not None
 
         if self.backbone_name == 'swin':
-            x = self.backbone.swin(images).last_hidden_state
+            # x = self.backbone.swin(images).last_hidden_state
+            x = self.backbone.swin(images, output_hidden_states=True).hidden_states[-3]  # (B, sequence_len=196, hidden_size=384)
+            x = torch.repeat_interleave(x, repeats=2, dim=-1)  # (B, seq_length, embed_dim=768)
 
         elif self.backbone_name == 'vit':
             x = self.backbone(images).last_hidden_state[:,1:]
             # output of vit is of size (b,197,768), we want (b,196,768)
 
         else:
-            x = self.backbone(images).logits  # (B, seq_length, embed_dim)
+            x = self.backbone(images)  # (B, seq_length, embed_dim)
 
 
         B, seq_length, embed_dim = x.shape
@@ -319,8 +325,8 @@ class Explainer(pl.LightningModule):
             x = x.permute(0, 2, 3, 1)  # (B, s, s, embed_dim)
             # embedding_all = x
         else:
-            # indices = [int((i + 0.5) * 14 / s) for i in range(s)]
-            indices = [int((i + 0.5) * 7 / s) for i in range(s)]
+            indices = [int((i + 0.5) * 14 / s) for i in range(s)]
+            # indices = [int((i + 0.5) * 7 / s) for i in range(s)]
             x = x[:, indices, :, :][:, :, indices, :]  # (B, s, s, embed_dim)
             # embedding_all = x
 
@@ -450,11 +456,16 @@ def main() -> None:
     parser.add_argument("--num_atts", required=False, default=1, type=int, help="number of attention blocks")
     parser.add_argument("--mlp_ratio", required=False, default=4, type=int, help="ratio for the middle layer in mlps")
 
-    parser.add_argument("--use_conv", required=True, default=False, type=bool, 
-                        help="convolutions to match dim num_players")
 
-    parser.add_argument("--target_model_name", required=False, default='vit', type=str, help="name of the target model")
-    parser.add_argument("--backbone_name", required=False, default='vit', type=str, help="name of the backbone")    
+    parser.add_argument("--use_surg", required=True, default=True, type=bool, 
+                        help="use surrogate or model trained without masks")
+    
+    parser.add_argument("--use_conv", required=False, default=False, type=bool, 
+                        help="convolutions to match dim num_players")
+    
+
+    parser.add_argument("--target_model_name", required=True, default='vit', type=str, help="name of the target model")
+    parser.add_argument("--backbone_name", required=True, default='vit', type=str, help="name of the backbone")    
     parser.add_argument("--freeze_backbone", required=True, default='none', type=str, 
                         help="freeze the backbone")
 
@@ -464,6 +475,7 @@ def main() -> None:
         target_model = models.t2t_vit.t2t_vit_14(num_classes=10)
         # target_model_path = PROJECT_ROOT / "saved_models/downloaded/cifar10/cifar10_t2t-vit_14_98.3.pth"
         target_model_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
+        surrogate_path = PROJECT_ROOT / "saved_models/surrogate/cifar10/_t2t_vit_player16_lr0.0001_wd0.0_b256_epoch19.ckpt"
     
     elif args.target_model_name == 'swin':
         configuration = SwinConfig()
@@ -473,27 +485,52 @@ def main() -> None:
                                 ignore_mismatched_sizes=True)
 
         target_model_path = PROJECT_ROOT / "saved_models/transferred/cifar10/swin_epoch-37_acc-97.34.pth"
-    
+        surrogate_path = PROJECT_ROOT / "saved_models/surrogate/cifar10/_swin_player16_lr0.0001_wd0.0_b256_epoch19.ckpt"
     else:
         target_model = ViTForImageClassification.from_pretrained("google/vit-base-patch16-224", 
                                                                  num_labels=10,
                                                                  ignore_mismatched_sizes=True)
         target_model_path = PROJECT_ROOT / "saved_models/transferred/cifar10/vit_epoch-47_acc-98.2.pth"     
+        surrogate_path = PROJECT_ROOT / "saved_models/surrogate/cifar10/_vit_player16_lr0.0001_wd0.0_b256_epoch19.ckpt"
 
 
-    surrogate = Surrogate(
-        output_dim=10,
-        backbone_name=args.backbone_name,
-        target_model=target_model,
-        learning_rate=args.lr,
-        weight_decay=args.wd,
-        decay_power="cosine",
-        warmup_steps=2,
-        num_players=args.num_players,
-    )
+    state_dict = torch.load(target_model_path)
+    target_model.load_state_dict(state_dict, strict=False)
 
-    checkpoint = torch.load(target_model_path)
-    surrogate.load_state_dict(checkpoint, strict=False)
+    if args.use_surg:
+        surrogate = Surrogate.load_from_checkpoint(
+            surrogate_path,
+            target_model=target_model,
+            backbone_name=args.backbone_name,
+            num_players=args.num_players
+        )
+
+    else:
+        surrogate = Surrogate.load_from_checkpoint(
+            target_model_path,
+            target_model=target_model,
+            backbone_name=args.backbone_name,
+            num_players=args.num_players
+        )
+
+
+    # surrogate = Surrogate(
+    #     output_dim=10,
+    #     backbone_name=args.backbone_name,
+    #     target_model=target_model,
+    #     learning_rate=args.lr,
+    #     weight_decay=args.wd,
+    #     decay_power="cosine",
+    #     warmup_steps=2,
+    #     num_players=args.num_players,
+    # )
+
+    # if args.use_surg:
+    #     checkpoint = torch.load(surrogate_path)
+    # else:
+    #     checkpoint = torch.load(target_model_path)
+
+    # surrogate.load_state_dict(checkpoint, strict=False)
 
     explainer = Explainer(
         output_dim=10,
@@ -526,11 +563,11 @@ def main() -> None:
         PROJECT_ROOT
         / "checkpoints"
         / "explainer"
-        / f"use_conv_{args.use_conv}_{args.backbone_name}_freeze_{args.freeze_backbone}_{args.label}_player{args.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
+        / f"use_conv_{args.use_conv}_{args.backbone_name}_freeze_{args.freeze_backbone}_use_surg{args.use_surg}_player{args.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
     )
     log_and_checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    trainer = pl.Trainer(max_epochs=50, default_root_dir=log_and_checkpoint_dir, callbacks=RichProgressBar(leave=True))
+    trainer = pl.Trainer(max_epochs=10, default_root_dir=log_and_checkpoint_dir, callbacks=RichProgressBar(leave=True))
     trainer.fit(explainer, datamodule)
 
 
