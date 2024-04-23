@@ -16,6 +16,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Any, Literal, cast, overload
 
 import torch
 import torch.nn as nn
@@ -23,7 +24,55 @@ import torch.nn.init as init
 import torch.nn.functional as F
 from torch.utils.data.dataset import Dataset
 
+from transformers import SwinConfig, SwinForImageClassification, ViTConfig, ViTForImageClassification
+from models.t2t_vit import T2T_ViT, t2t_vit_14
+
 _logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).parent  # Path to the T2T_ViT/ directory.
+
+
+@overload
+def load_transferred_model(
+    name: Literal["t2t_vit"], path: Path | None = None, device: Any = "cpu", num_classes: int = 10
+) -> T2T_ViT:
+    ...
+
+
+@overload
+def load_transferred_model(
+    name: Literal["swin"], path: Path | None = None, device: Any = "cpu", num_classes: int = 10
+) -> SwinForImageClassification:
+    ...
+
+
+@overload
+def load_transferred_model(
+    name: Literal["vit"], path: Path | None = None, device: Any = "cpu", num_classes: int = 10
+) -> ViTForImageClassification:
+    ...
+
+
+def load_transferred_model(name, path=None, device="cpu", num_classes=10):
+    """
+    Load a model transferred to CIFAR10.
+    """
+    model: nn.Module  # T2T_ViT | ViTForImageClassification | SwinForImageClassification
+    transferred_dir = PROJECT_ROOT / "saved_models/transferred/cifar10"
+    if name == "t2t_vit":
+        path = path or transferred_dir / "ckpt_0.01_0.0005_97.5.pth"
+        model = cast(T2T_ViT, t2t_vit_14(num_classes=num_classes))
+    elif name == "vit":
+        path = path or transferred_dir / "vit_epoch-47_acc-98.2.pth"
+        # path = PROJECT_ROOT / "saved_models/downloaded/cifar10/cifar10_t2t-vit_14_98.3.pth"
+        model = ViTForImageClassification(ViTConfig(num_labels=num_classes))
+    elif name == "swin":
+        path = path or transferred_dir / "swin_epoch-37_acc-97.34.pth"
+        model = SwinForImageClassification(SwinConfig(num_labels=num_classes))
+    else:
+        raise ValueError(f"Unexpected backbone name: {name}")
+    load_checkpoint(path, model, device=device)
+    return model
 
 
 def load_checkpoint(checkpoint_path: Path, model: nn.Module, ignore_keys: list[str] = [], device="cpu") -> None:
@@ -32,7 +81,6 @@ def load_checkpoint(checkpoint_path: Path, model: nn.Module, ignore_keys: list[s
 
     Ignored keys are kept unchanged in the model (typically ["head.weight", "head.bias"] for transfer learning).
     """
-
     state_dict = torch.load(checkpoint_path, map_location=device)
 
     # Fix nested state_dict-s.
@@ -44,7 +92,7 @@ def load_checkpoint(checkpoint_path: Path, model: nn.Module, ignore_keys: list[s
         state_dict = {k.removeprefix("module."): v for k, v in state_dict.items()}
 
     # Resize position embedding if necessary.
-    if state_dict["pos_embed"].shape != model.pos_embed.shape:
+    if "pos_embed" in state_dict and state_dict["pos_embed"].shape != model.pos_embed.shape:
         state_dict["pos_embed"] = resize_pos_embed(state_dict["pos_embed"], model.pos_embed)
 
     # Handle ignored keys.
