@@ -118,11 +118,10 @@ class Surrogate(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         assert self.target_model is not None
         images, labels, masks = batch["images"], batch["labels"], batch["masks"]
-
-        # logits = self(images, masks)  # ['logits']
         images_masked, masks, labels = apply_masks_to_batch(images, masks, labels)
 
-        logits = self(images_masked)  # ['logits']
+        logits = self(images_masked)
+        logits_unmasked = self(images)
         if self.backbone_name == 't2t_vit':
             logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)
         else:
@@ -130,14 +129,15 @@ class Surrogate(pl.LightningModule):
 
         self.log("val/loss", self._surrogate_loss(logits=logits, logits_target=logits_target), prog_bar=True)
         self.log("val/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
+        self.log("val/acc_unmasked", (logits_unmasked.argmax(dim=1) == labels).float().mean(), prog_bar=True)
 
     def test_step(self, batch, batch_idx):
         assert self.target_model is not None
         images, labels, masks = batch["images"], batch["labels"], batch["masks"]
         images_masked, masks, labels = apply_masks_to_batch(images, masks, labels)
 
-        logits = self(images_masked)  # ['logits']
-        # logits = self(images, masks)  # ['logits']
+        logits = self(images_masked)
+        logits_unmasked = self(images)
         if self.backbone_name == 't2t_vit':
             logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)
         else:
@@ -145,6 +145,7 @@ class Surrogate(pl.LightningModule):
 
         self.log("test/loss", self._surrogate_loss(logits=logits, logits_target=logits_target), prog_bar=True)
         self.log("test/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
+        self.log("test/acc_unmasked", (logits_unmasked.argmax(dim=1) == labels).float().mean(), prog_bar=True)
 
     def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
         optimizer = AdamW(
@@ -210,6 +211,7 @@ def main() -> None:
         / f"{args.label}_{args.backbone_name}_player{surrogate.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
     )
     log_and_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    print(f"{log_and_checkpoint_dir=}")
     trainer = pl.Trainer(
         max_epochs=20,
         default_root_dir=log_and_checkpoint_dir,
