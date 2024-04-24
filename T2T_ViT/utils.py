@@ -283,3 +283,11 @@ def format_time(seconds: float) -> str:
     if f == '':
         f = '0ms'
     return f
+
+
+def is_true_string(s: str) -> bool:
+    if s.lower() in ("true", "1", "yes", "t", "y"):
+        return True
+    if s.lower() in ("false", "0", "no", "f", "n", ""):
+        return False
+    raise ValueError(f"Invalid truth value {s!r}")

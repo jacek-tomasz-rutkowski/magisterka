@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 from pytorch_lightning.callbacks import RichProgressBar
 
-from utils import load_transferred_model
+from utils import load_transferred_model, is_true_string
 from vit_shapley.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks
 from vit_shapley.modules import explainer_utils
 from vit_shapley.modules.surrogate import Surrogate
@@ -367,7 +367,7 @@ class Explainer(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         assert self.surrogate is not None
-        images, masks = batch["images"], batch["masks"]
+        images, masks, labels = batch["images"], batch["masks"], batch["labels"]
 
         # Evaluate surrogate.
         surrogate_values = self.surrogate_multiple_masks(images, masks)
@@ -391,11 +391,22 @@ class Explainer(pl.LightningModule):
             phase="val",
         )
 
+        self.log(
+            "val/macc-best",
+            explainer_utils.get_masked_accuracy(images, masks, labels, self.surrogate, shap_values, "best"),
+            prog_bar=True
+        )
+        self.log(
+            "val/macc-worst",
+            explainer_utils.get_masked_accuracy(images, masks, labels, self.surrogate, shap_values, "worst"),
+            prog_bar=True
+        )
+
         return loss
 
     def test_step(self, batch, batch_idx):
         assert self.surrogate is not None
-        images, masks = batch["images"], batch["masks"]
+        images, masks, labels = batch["images"], batch["masks"], batch["labels"]
 
         # Evaluate surrogate.
         surrogate_values = self.surrogate_multiple_masks(images, masks)
@@ -418,6 +429,18 @@ class Explainer(pl.LightningModule):
             surrogate_null=surrogate_null,
             phase="test",
         )
+
+        self.log(
+            "test/macc-best",
+            explainer_utils.get_masked_accuracy(images, masks, labels, self.surrogate, shap_values, "best"),
+            prog_bar=True
+        )
+        self.log(
+            "test/macc-worst",
+            explainer_utils.get_masked_accuracy(images, masks, labels, self.surrogate, shap_values, "worst"),
+            prog_bar=True
+        )
+
         return loss
 
 
@@ -434,10 +457,10 @@ def main() -> None:
     parser.add_argument("--num_atts", required=False, default=1, type=int, help="number of attention blocks")
     parser.add_argument("--mlp_ratio", required=False, default=4, type=int, help="ratio for the middle layer in mlps")
 
-    parser.add_argument("--use_surg", required=True, default=True, type=bool,
+    parser.add_argument("--use_surg", required=True, default=True, type=is_true_string,
                         help="use surrogate or model trained without masks")
 
-    parser.add_argument("--use_conv", required=False, default=False, type=bool,
+    parser.add_argument("--use_conv", required=False, default=False, type=is_true_string,
                         help="convolutions to match dim num_players")
 
     parser.add_argument("--target_model_name", required=True, default='vit', type=str, help="name of the target model")
