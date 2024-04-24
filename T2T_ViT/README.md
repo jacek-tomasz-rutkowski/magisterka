@@ -21,3 +21,6 @@ Contains checkpoints with model weights that we want to keep:
   - `_vit_player16_lr0.0001_wd0.0_b256_epoch19.ckpt`:         accuracy 98.72% without masks, 90.17% with 196-masks.
   - `_player16_lr1e-05_wd0.0_b256_epoch28.ckpt`: old T2T-ViT, accuracy 98.29% without masks, 91.49% with 196-masks. Trained with something like:
         `python -m vit_shapley.modules.surrogate --num_players 196 --lr 0.00001 --wd 0 --b 256 --num_workers 2`
+
+- `explainer/cifar10/`:
+    - `v2/`: All trained with `python -m vit_shapley.modules.explainer_swin --num_players NNN --lr 0.00005 --wd 0 --b 256 --num_workers 2 --freeze_backbone=none --use_conv=true --use_surg=True --target_model_name=X --backbone_name=X`

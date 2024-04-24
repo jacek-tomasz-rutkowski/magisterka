@@ -50,12 +50,19 @@ class Explainer(pl.LightningModule):
         decay_power: Optional[str],
         warmup_steps: Optional[int],
         use_convolution: bool,
+        num_players: Optional[int] = None,
         surrogate: Optional[pl.LightningModule] = None,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["surrogate"])
         self.backbone_name = backbone_name
-        assert surrogate is not None
+        surrogate_num_players = getattr(surrogate, 'num_players', None)
+        assert num_players is not None, f"Please specify num_players to Explainer; {surrogate_num_players=}"
+        if surrogate_num_players:
+            assert num_players == surrogate_num_players, \
+                f"Explainer's {num_players=} != {surrogate_num_players=}. It's technically OK but unexpected."
+        assert surrogate is not None, "Please provide a surrogate model to the explainer (it's needed even for evaluation, for grand())."
+        self.num_players = num_players
         self.surrogate = surrogate
 
         self.__null: Optional[torch.Tensor] = None
@@ -71,8 +78,8 @@ class Explainer(pl.LightningModule):
             # self.backbone.pooling = nn.Identity() ??
             self.backbone.classifier = nn.Identity()
         elif backbone_name == "vit":
-            self.backbone = torch.nn.Sequential(self.backbone.vit.embeddings, self.backbone.vit.encoder)
             head_in_features = self.backbone.classifier.in_features
+            self.backbone = torch.nn.Sequential(self.backbone.vit.embeddings, self.backbone.vit.encoder)
             # output of the backbone is (b, 197, 768)
         else:
             raise ValueError(f"Unexpected backbone_name: {backbone_name}")
@@ -112,10 +119,10 @@ class Explainer(pl.LightningModule):
             169: dict(kernel_size=2, padding=0, stride=1),
             196: dict(kernel_size=1, padding=0, stride=1),
         }
-        conv2d_params = num_players_to_conv2d_params[self.surrogate.num_players]
+        conv2d_params = num_players_to_conv2d_params[num_players]
         if use_convolution:
-            self.conv = torch.nn.Conv2d(in_channels=self.backbone.num_features,
-                out_channels=self.backbone.num_features,
+            self.conv = torch.nn.Conv2d(in_channels=head_in_features,
+                out_channels=head_in_features,
                 kernel_size=conv2d_params['kernel_size'],
                 stride=conv2d_params['stride'],
                 padding=conv2d_params['padding']).to(self.device)
@@ -153,6 +160,10 @@ class Explainer(pl.LightningModule):
     def configure_optimizers(self):
         return explainer_utils.set_schedule(self)
 
+    # def state_dict(self):
+    #     """Remove 'surrogate' from the state_dict (the stuff saved in checkpoints)."""
+    #     return {k: v for k, v in super().state_dict().items() if not k.startswith("surrogate.")}
+
     def null(self, images: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Class probabilites for a fully masked input (cached after first call).
@@ -160,15 +171,15 @@ class Explainer(pl.LightningModule):
         Input: (batch, channel, height, width), only the shape is relevant.
         Output: (1, num_classes).
         """
-        assert self.surrogate is not None
         if self.__null is not None:
             return self.__null
         if images is None:
             raise RuntimeError("Call explainer.null(images) at least once to get null value.")
+        assert self.surrogate is not None
         self.surrogate.eval()
         with torch.no_grad():
             images = images[0:1].to(self.surrogate.device)  # Limit batch to one image.
-            masks = torch.zeros(1, 1, self.surrogate.num_players, device=self.surrogate.device)
+            masks = torch.zeros(1, 1, self.num_players, device=self.surrogate.device)
             images_masked = apply_masks(images, masks)  # Mask-out everything.
             logits = self.surrogate(images_masked)  # (1, channel, height, weight) -> (1, num_classes)
             self.__null = torch.nn.Softmax(dim=1)(logits).to(self.device)  # (1, num_classes)
@@ -184,7 +195,7 @@ class Explainer(pl.LightningModule):
         self.surrogate.eval()
         with torch.no_grad():
             images = images.to(self.surrogate.device)  # (batch, channel, height, weight)
-            masks = torch.ones(images.shape[0], 1, self.surrogate.num_players, device=self.surrogate.device)
+            masks = torch.ones(images.shape[0], 1, self.num_players, device=self.surrogate.device)
             images_masked = apply_masks(images, masks)  # (batch, channel, height, weight)
             logits = self.surrogate(images_masked)  # (batch, num_classes)
             grand: torch.Tensor = torch.nn.Softmax(dim=1)(logits).to(self.device)  # (batch, num_classes)
@@ -203,8 +214,8 @@ class Explainer(pl.LightningModule):
         with torch.no_grad():
             batch_size, num_masks_per_image, num_players = masks.shape
             assert (
-                num_players == self.surrogate.num_players
-            ), f"Surrogate was trained with {self.surrogate.num_players=} != {num_players=}. It's OK but unexpected."
+                num_players == self.num_players
+            ), f"Explainer was inited with {self.num_players=} but got {num_players=} from dataloader."
             images, masks = images.to(self.surrogate.device), masks.to(self.surrogate.device)
             images_masked = apply_masks(images, masks)  # (B * num_mask_samples, C, H, W)
             logits = self.surrogate(images_masked)  # (B * num_mask_samples, num_classes)
@@ -264,10 +275,13 @@ class Explainer(pl.LightningModule):
             x = self.backbone(images).last_hidden_state[:, 1:]
             # output of vit is of size (b,197,768), we want (b,196,768)
 
-        else:
+        elif self.backbone_name == 't2t_vit':
             x = self.backbone(images)  # (B, seq_length, embed_dim)
 
-        assert x.shape[1] == 196, f"Expected {x.shape[1]=} to be 196."
+        else:
+            raise ValueError(f"Unexpected backbone_name: {self.backbone_name}")
+
+        assert x.shape[1] == 196, f"Expected {x.shape=} to be (batch, 196, embed_dim)."
 
         B, seq_length, embed_dim = x.shape
         r = int(math.sqrt(seq_length))
@@ -276,8 +290,8 @@ class Explainer(pl.LightningModule):
         # Reshape to (B, r, r, embed_dim).
         x = x.view(B, r, r, embed_dim)
 
-        s = int(math.sqrt(self.surrogate.num_players))
-        assert s * s == self.surrogate.num_players, f"Expected {self.surrogate.num_players=} to be a perfect square."
+        s = int(math.sqrt(self.num_players))
+        assert s * s == self.num_players, f"Expected {self.num_players=} to be a perfect square."
 
         # Adapt to (B, s, s, embed_dim).
         if r == s:
@@ -340,7 +354,7 @@ class Explainer(pl.LightningModule):
 
         loss = explainer_utils.compute_metrics(
             self,
-            num_players=self.surrogate.num_players,
+            num_players=self.num_players,
             shap_values=shap_values,
             values_pred=values_pred,
             values_target=surrogate_values,
@@ -368,7 +382,7 @@ class Explainer(pl.LightningModule):
 
         loss = explainer_utils.compute_metrics(
             self,
-            num_players=self.surrogate.num_players,
+            num_players=self.num_players,
             shap_values=shap_values,
             values_pred=values_pred,
             values_target=surrogate_values,
@@ -396,7 +410,7 @@ class Explainer(pl.LightningModule):
 
         loss = explainer_utils.compute_metrics(
             self,
-            num_players=self.surrogate.num_players,
+            num_players=self.num_players,
             shap_values=shap_values,
             values_pred=values_pred,
             values_target=surrogate_values,
@@ -436,18 +450,19 @@ def main() -> None:
     if args.use_surg:
         surrogate_dir = PROJECT_ROOT / "saved_models/surrogate/cifar10"
         if args.target_model_name == 't2t_vit':
-            surrogate_path = surrogate_dir / "_t2t_vit_player16_lr0.0001_wd0.0_b256_epoch19.ckpt"
+            surrogate_path = surrogate_dir / f"v2/player{args.num_players}/t2t_vit.ckpt"
         elif args.target_model_name == 'swin':
-            surrogate_path = surrogate_dir / "_swin_player16_lr0.0001_wd0.0_b256_epoch19.ckpt"
+            surrogate_path = surrogate_dir / f"v2/player{args.num_players}/swin.ckpt"
         elif args.target_model_name == 'vit':
-            surrogate_path = surrogate_dir / "_vit_player16_lr0.0001_wd0.0_b256_epoch19.ckpt"
+            surrogate_path = surrogate_dir / f"v2/player{args.num_players}/vit.ckpt"
         else:
             raise ValueError(f"Unexpected target model name: {args.target_model_name}")
 
         target_model = Surrogate.load_from_checkpoint(
             surrogate_path,
             map_location="cuda",
-            strict=False  # It's OK to ignore Surrogate's "target_model.*" being saved checkpoint but not in Surrogate for evaluation.
+            strict=True,  # For older models, it's OK to ignore Surrogate's "target_model.*" being saved checkpoint but not in Surrogate for evaluation.
+            # backbone_name="t2t_vit"  # Needs to be specified for very old checkpoints.
         )
     else:
         target_model = load_transferred_model(args.target_model_name)
@@ -468,6 +483,7 @@ def main() -> None:
         decay_power=None,
         warmup_steps=None,
         use_convolution=args.use_conv,
+        num_players=args.num_players,
     )
 
     datamodule = CIFAR_10_Datamodule(
@@ -485,6 +501,7 @@ def main() -> None:
         / f"use_conv_{args.use_conv}_{args.backbone_name}_freeze_{args.freeze_backbone}_use_surg{args.use_surg}_player{args.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
     )
     log_and_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    print(f"{log_and_checkpoint_dir=}")
 
     trainer = pl.Trainer(max_epochs=10, default_root_dir=log_and_checkpoint_dir, callbacks=RichProgressBar(leave=True))
     trainer.fit(explainer, datamodule)

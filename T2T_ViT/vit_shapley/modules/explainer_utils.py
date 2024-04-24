@@ -64,7 +64,20 @@ def compute_metrics(
         + pl_module.hparams["efficiency_class_lambda"] * efficiency_class_gap
     )
 
-    pl_module.log(f"{phase}/value_diff", value_diff, prog_bar=True)
+    # Root Mean Square Error in values per player:
+    rmse_diff = F.mse_loss(input=values_pred, target=values_target, reduction="mean").sqrt()
+    pl_module.log(f"{phase}/rmse", rmse_diff, prog_bar=True)
+    # Mean Absolute Error in values per player:
+    mae_diff = F.l1_loss(input=values_pred, target=values_target, reduction="mean")
+    pl_module.log(f"{phase}/mae", mae_diff, prog_bar=True)
+    # Span between min and max target value (for an average image):
+    span = (values_target.max(dim=2).values - values_target.min(dim=2).values).mean()
+    pl_module.log(f"{phase}/span", span, prog_bar=True)
+    # STD of target values (for an average image):
+    std = values_target.std(dim=2).mean()
+    pl_module.log(f"{phase}/std", std, prog_bar=True)
+
+    pl_module.log(f"{phase}/value_diff", value_diff, prog_bar=False)
     pl_module.log(f"{phase}/eff", efficiency_gap, prog_bar=True)
     pl_module.log(f"{phase}/eff_class", efficiency_class_gap, prog_bar=True)
     pl_module.log(f"{phase}/loss", loss, prog_bar=True)

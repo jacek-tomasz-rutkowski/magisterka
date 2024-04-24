@@ -77,9 +77,15 @@ class Surrogate(pl.LightningModule):
             logits = self.head(out)
         return logits
 
-    def state_dict(self):
+    def state_dict(self, *args, **kwargs):
         """Remove 'target_model' from the state_dict (the stuff saved in checkpoints)."""
-        return {k: v for k, v in super().state_dict().items() if not k.startswith("target_model.")}
+        # We need to be compatible with the extended API where a 'destination' dict may be given,
+        # and we need to update it (we can't make a copy).
+        destination = super().state_dict(*args, **kwargs).items()
+        for k, v in destination:
+            if k.startswith("target_model."):
+                del destination[k]
+        return destination
 
     @staticmethod
     def _surrogate_loss(logits: torch.Tensor, logits_target: torch.Tensor) -> torch.Tensor:
