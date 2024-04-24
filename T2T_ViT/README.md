@@ -24,3 +24,4 @@ Contains checkpoints with model weights that we want to keep:
 
 - `explainer/cifar10/`:
     - `v2/`: All trained with `python -m vit_shapley.modules.explainer_swin --num_players NNN --lr 0.00005 --wd 0 --b 256 --num_workers 2 --freeze_backbone=none --use_conv=true --use_surg=True --target_model_name=X --backbone_name=X`
+      - `checkpoints/explainer/use_conv_True_t2t_vit_freeze_none_use_surgTrue_player16_lr5e-05_wd0.0_b256/lightning_logs/version_4/checkpoints/epoch=5-step=1056.ckpt`
