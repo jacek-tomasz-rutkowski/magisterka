@@ -333,7 +333,8 @@ class Explainer(pl.LightningModule):
         assert self.surrogate is not None
         # Images have shape (batch, channel, height, weight).
         # Masks have shape: (batch, num_masks_per_image, num_players).
-        images, masks = batch["images"], batch["masks"]
+        # Labels have shape: (batch,).
+        images, masks, labels = batch["images"], batch["masks"], batch["labels"]
 
         # Evaluate surrogate on masked, unmasked and fully masked inputs.
         surrogate_values = self.surrogate_multiple_masks(images, masks)  # (batch, num_masks_per_image, num_classes)
@@ -360,6 +361,8 @@ class Explainer(pl.LightningModule):
             values_target=surrogate_values,
             surrogate_grand=surrogate_grand,
             surrogate_null=surrogate_null,
+            targets=labels,
+            masks=masks,
             phase="train",
         )
 
@@ -388,6 +391,8 @@ class Explainer(pl.LightningModule):
             values_target=surrogate_values,
             surrogate_grand=surrogate_grand,
             surrogate_null=surrogate_null,
+            targets=labels,
+            masks=masks,
             phase="val",
         )
 
@@ -427,6 +432,8 @@ class Explainer(pl.LightningModule):
             values_target=surrogate_values,
             surrogate_grand=surrogate_grand,
             surrogate_null=surrogate_null,
+            targets=labels,
+            masks=masks,
             phase="test",
         )
 
@@ -454,7 +461,7 @@ def main() -> None:
     parser.add_argument("--wd", required=False, default=0.0, type=float, help="explainer weight decay")
     parser.add_argument("--b", required=False, default=128, type=int, help="batch size")
     parser.add_argument("--num_workers", required=False, default=0, type=int, help="number of dataloader workers")
-    parser.add_argument("--num_atts", required=False, default=1, type=int, help="number of attention blocks")
+    parser.add_argument("--num_atts", required=False, default=0, type=int, help="number of attention blocks")
     parser.add_argument("--mlp_ratio", required=False, default=4, type=int, help="ratio for the middle layer in mlps")
 
     parser.add_argument("--use_surg", required=True, default=True, type=is_true_string,
@@ -521,12 +528,12 @@ def main() -> None:
         PROJECT_ROOT
         / "checkpoints"
         / "explainer"
-        / f"use_conv_{args.use_conv}_{args.backbone_name}_freeze_{args.freeze_backbone}_use_surg{args.use_surg}_player{args.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
+        / f"{args.label}use_conv_{args.use_conv}_{args.backbone_name}_freeze_{args.freeze_backbone}_use_surg{args.use_surg}_player{args.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
     )
     log_and_checkpoint_dir.mkdir(parents=True, exist_ok=True)
     print(f"{log_and_checkpoint_dir=}")
 
-    trainer = pl.Trainer(max_epochs=10, default_root_dir=log_and_checkpoint_dir, callbacks=RichProgressBar(leave=True))
+    trainer = pl.Trainer(max_epochs=50, default_root_dir=log_and_checkpoint_dir, callbacks=RichProgressBar(leave=True))
     trainer.fit(explainer, datamodule)
 
 

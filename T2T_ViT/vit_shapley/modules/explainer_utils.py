@@ -46,10 +46,23 @@ def compute_metrics(
     values_target: torch.Tensor,  # (batch, num_masks_per_image, num_classes)
     surrogate_grand: torch.Tensor,  # (batch, num_classes)
     surrogate_null: torch.Tensor,  # (1, num_classes)
+    targets: torch.Tensor,  # (batch,)
+    masks: torch.Tensor, # (batch, num_masks_per_image, num_players)
     phase: Literal["train", "val", "test"],
 ) -> torch.Tensor:
     # values_pred should be close to values_target.
     value_diff = num_players * F.mse_loss(input=values_pred, target=values_target, reduction="mean")
+
+    # A baseline is constant shap_values (that sum to grand - null)
+    baseline_shap_values = (surrogate_grand - surrogate_null).div(num_players)  # (B, num_classes)
+    baseline_shap_values = baseline_shap_values.unsqueeze(dim=1).expand(-1, num_players, -1)  # (B, num_players, num_classes)
+    values_baseline = surrogate_null.unsqueeze(0) + masks.float() @ baseline_shap_values
+
+    # target_values_pred[b, p] := values_pred[b, p, targets[b]]
+    target_values_pred = values_pred[torch.arange(values_pred.shape[0]), :, targets]  # (B, num_masks_per_image)
+    target_values_target = values_target[torch.arange(values_target.shape[0]), :, targets]  # (B, num_masks_per_image)
+    target_value_diff = num_players * F.mse_loss(input=target_values_pred, target=target_values_target, reduction="mean")
+    target_shap_values = shap_values[torch.arange(shap_values.shape[0]), :, targets]  # (B, num_players)
 
     # shap_values summed over players should be close
     # to the difference between the grand coalition and the null coalition.
@@ -63,28 +76,36 @@ def compute_metrics(
     )
 
     loss = (
-        value_diff
+        value_diff  # target_value_diff
         + pl_module.hparams["efficiency_lambda"] * efficiency_gap
         + pl_module.hparams["efficiency_class_lambda"] * efficiency_class_gap
     )
 
     # Root Mean Square Error in values per player:
     rmse_diff = F.mse_loss(input=values_pred, target=values_target, reduction="mean").sqrt()
-    pl_module.log(f"{phase}/rmse", rmse_diff, prog_bar=True)
+    pl_module.log(f"{phase}/v_rmse", rmse_diff, prog_bar=True)  # can't beat ~0.157
+    rmse_diff_baseline = F.mse_loss(input=values_baseline, target=values_target, reduction="mean").sqrt()
+    pl_module.log(f"{phase}/v_rmse_base", rmse_diff_baseline, prog_bar=True)
     # Mean Absolute Error in values per player:
     mae_diff = F.l1_loss(input=values_pred, target=values_target, reduction="mean")
-    pl_module.log(f"{phase}/mae", mae_diff, prog_bar=True)
-    # Span between min and max target value (for an average image):
-    span = (values_target.max(dim=2).values - values_target.min(dim=2).values).mean()
-    pl_module.log(f"{phase}/span", span, prog_bar=True)
-    # STD of target values (for an average image):
-    std = values_target.std(dim=2).mean()
-    pl_module.log(f"{phase}/std", std, prog_bar=True)
+    pl_module.log(f"{phase}/v_mae", mae_diff, prog_bar=True)  # can't beat ~0.084
+    mae_diff_baseline = F.l1_loss(input=values_baseline, target=values_target, reduction="mean")
+    pl_module.log(f"{phase}/v_mae_base", mae_diff_baseline, prog_bar=True)
 
-    pl_module.log(f"{phase}/value_diff", value_diff, prog_bar=False)
+    pl_module.log(f"{phase}/v_diff", value_diff, prog_bar=False)
+    pl_module.log(f"{phase}/vt_diff", target_value_diff, prog_bar=False)
     pl_module.log(f"{phase}/eff", efficiency_gap, prog_bar=True)
     pl_module.log(f"{phase}/eff_class", efficiency_class_gap, prog_bar=True)
     pl_module.log(f"{phase}/loss", loss, prog_bar=True)
+    # pl_module.log(f"{phase}/mean_pred", values_pred.mean(), prog_bar=True)                      # should be and is 1 / num_classes
+    # pl_module.log(f"{phase}/mean_gt", values_target.mean(), prog_bar=True)                       # is 1 / num_classes
+    pl_module.log(f"{phase}/vt_mean", target_values_pred.mean(), prog_bar=True)        # should be possibly close to ~0.9, can't beat ~0.54
+    pl_module.log(f"{phase}/vt_mean_target", target_values_target.mean(), prog_bar=True)    # is ~0.9
+    span_t_shap = (target_shap_values.max(dim=1).values - target_shap_values.min(dim=1).values).mean()
+    pl_module.log(f"{phase}/t_shap_min", span_t_shap, prog_bar=True)                                  # should be as large as possible, 0.9 / num_players is OK-ish.
+    pl_module.log(f"{phase}/t_shap_min", target_shap_values.min(dim=1).values.mean(), prog_bar=True)   # should be slightly negative, ideally
+    pl_module.log(f"{phase}/t_shap_max", target_shap_values.max(dim=1).values.mean(), prog_bar=True)
+    # pl_module.log(f"{phase}/mean_t_shap", target_shap_values.mean(dim=1).mean(), prog_bar=True)      # should be and is close to 0.9 / num_players
 
     return cast(torch.Tensor, loss)
 
