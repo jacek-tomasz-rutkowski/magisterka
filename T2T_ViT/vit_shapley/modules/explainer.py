@@ -6,9 +6,12 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 from pytorch_lightning.callbacks import RichProgressBar
+from transformers import SwinConfig, \
+    SwinForImageClassification
+
 
 import models.t2t_vit
-from utils import load_checkpoint
+from utils import load_transferred_model
 from vit_shapley.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks
 from vit_shapley.modules import explainer_utils
 from vit_shapley.modules.surrogate import Surrogate
@@ -38,6 +41,7 @@ class Explainer(pl.LightningModule):
     def __init__(
         self,
         output_dim: int,
+        backbone_name: Literal["vit", "t2t_vit", "swin"],
         explainer_head_num_attention_blocks: int,
         explainer_head_mlp_layer_ratio: int,
         explainer_norm: bool,
@@ -54,21 +58,30 @@ class Explainer(pl.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["surrogate"])
+        self.backbone_name = backbone_name
         assert surrogate is not None
         self.surrogate = surrogate
 
         self.__null: Optional[torch.Tensor] = None
 
-        self.backbone = models.t2t_vit.t2t_vit_14(num_classes=output_dim)
-        backbone_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
-        load_checkpoint(backbone_path, self.backbone, ignore_keys=["head.weight", "head.bias"])
+        # Backbone initialization
+        self.backbone = load_transferred_model(backbone_name)
 
         # Nullify classification head built in the backbone module and rebuild.
-        self.backbone.head = nn.Identity()
-        self.backbone.forward_features = self.backbone_forward_features
+        if backbone_name == 't2t_vit':
+            head_in_features = self.backbone.head.in_features
+            self.backbone.head = nn.Identity()
+            self.backbone.forward_features = self.backbone_forward_features  # type: ignore
+        elif backbone_name in ["swin", "vit"]:
+            head_in_features = self.backbone.classifier.in_features
+            self.backbone.classifier = nn.Identity()
+        else:
+            raise ValueError(f"Unexpected backbone_name: {backbone_name}")
+        self.head = nn.Linear(head_in_features, self.hparams["output_dim"])
+
         self.attention_blocks = nn.ModuleList(
             [
-                nn.MultiheadAttention(embed_dim=self.backbone.num_features, num_heads=4, batch_first=True)
+                nn.MultiheadAttention(embed_dim=head_in_features, num_heads=4, batch_first=True)
                 for _ in range(explainer_head_num_attention_blocks)
             ]
         )
@@ -76,17 +89,17 @@ class Explainer(pl.LightningModule):
             self.attention_blocks[0].norm1 = nn.Identity()
 
         # mlps
-        mid_dim = int(explainer_head_mlp_layer_ratio * self.backbone.num_features)
+        mid_dim = int(explainer_head_mlp_layer_ratio * head_in_features)
         self.mlps = nn.Sequential(
-            nn.LayerNorm(self.backbone.num_features),
-            nn.Linear(in_features=self.backbone.num_features, out_features=mid_dim),
+            nn.LayerNorm(head_in_features),
+            nn.Linear(in_features=head_in_features, out_features=mid_dim),
             self.backbone.blocks[0].mlp.act.__class__(),
             nn.Linear(in_features=mid_dim, out_features=output_dim),
         )
 
         self.use_convolution = use_convolution
         # https://ezyang.github.io/convolution-visualizer/index.html
-        num_players_to_conv2d_params = {
+        num_players_to_conv2d_params = {  # assumes an input sequence of length 196 = 14 * 14.
             4: dict(kernel_size=7, padding=0, stride=7),
             9: dict(kernel_size=6, padding=1, stride=5),
             16: dict(kernel_size=4, padding=1, stride=4),
@@ -245,6 +258,7 @@ class Explainer(pl.LightningModule):
         assert self.surrogate is not None
 
         x = self.backbone(x=images)  # (B, seq_length, embed_dim)
+
         B, seq_length, embed_dim = x.shape
         r = int(math.sqrt(seq_length))
         assert seq_length == r * r, f"Expected {seq_length=} to be a perfect square."
@@ -257,25 +271,26 @@ class Explainer(pl.LightningModule):
 
         # Adapt to (B, s, s, embed_dim).
         if r == s:
-            embedding_all = x
+            print('Udało się!')
+            pass
         elif self.use_convolution:
             x = x.permute(0, 3, 1, 2)  # (B, embed_dim, r, r)
             x = self.conv(x)  # (B, embed_dim, s, s)
             assert x.shape[2] == x.shape[3] == s
             x = x.permute(0, 2, 3, 1)  # (B, s, s, embed_dim)
-            embedding_all = x
+            # embedding_all = x
         else:
             indices = [int((i + 0.5) * 14 / s) for i in range(s)]
             x = x[:, indices, :, :][:, :, indices, :]  # (B, s, s, embed_dim)
-            embedding_all = x
+            # embedding_all = x
 
         # Flatten to (B, num_players, embed_dim)
-        embedding_all = embedding_all.flatten(1, 2)
+        x = x.flatten(1, 2)
 
         for layer_module in self.attention_blocks:
-            embedding_all, _ = layer_module(embedding_all, embedding_all, embedding_all, need_weights=False)
+            x, _ = layer_module(x, x, x, need_weights=False)
 
-        pred = self.mlps(embedding_all)  # (B, num_players, embed_dim) -> # (B, num_players, num_classes)
+        pred = self.mlps(x)  # (B, num_players, embed_dim) -> # (B, num_players, num_classes)
         pred = pred.tanh()
 
         if normalize and self.normalization:
@@ -395,33 +410,45 @@ def main() -> None:
     parser.add_argument("--num_atts", required=False, default=1, type=int, help="number of attention blocks")
     parser.add_argument("--mlp_ratio", required=False, default=4, type=int, help="ratio for the middle layer in mlps")
 
+    parser.add_argument("--use_conv", required=True, default=True, type=bool,
+                        help="convolutions to match dim num_players")
+    parser.add_argument("--freeze_backbone", required=True, default='none', type=str,
+                        help="freeze the backbone")
+
     args = parser.parse_args()
 
     target_model = models.t2t_vit.t2t_vit_14(num_classes=10)
-    # target_model_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
-    # load_checkpoint(target_model_path, target_model)
+
+    configuration = SwinConfig()
+    target_model_2 = SwinForImageClassification(configuration) \
+                            .from_pretrained("microsoft/swin-tiny-patch4-window7-224",\
+                            num_labels=10,
+                            ignore_mismatched_sizes=True)
 
     surrogate = Surrogate.load_from_checkpoint(
         PROJECT_ROOT / "saved_models/surrogate/cifar10/_player16_lr1e-05_wd0.0_b256_epoch28.ckpt",
-        # PROJECT_ROOT / "saved_models/surrogate/cifar10/_player196_lr1e-05_wd0.0_b128_epoch49.ckpt",
+        # PROJECT_ROOT / "checkpoints/surrogate/swin_player16_lr1e-05_wd0.0_b128/lightning_logs/version_1/checkpoints",
         target_model=target_model,
+        backbone_name='t2t_vit',
         num_players=args.num_players
     )
 
     explainer = Explainer(
         output_dim=10,
+        backbone_name='swin',
         explainer_head_num_attention_blocks=args.num_atts,
         explainer_head_mlp_layer_ratio=args.mlp_ratio,
         explainer_norm=True,
         surrogate=surrogate,
         efficiency_lambda=0,
         efficiency_class_lambda=0,
-        freeze_backbone="except_last_two",
+        freeze_backbone=args.freeze_backbone,
         checkpoint_metric="loss",
         learning_rate=args.lr,
         weight_decay=args.wd,
         decay_power=None,
         warmup_steps=None,
+        use_convolution=args.use_conv,
     )
 
     datamodule = CIFAR_10_Datamodule(
@@ -436,11 +463,13 @@ def main() -> None:
         PROJECT_ROOT
         / "checkpoints"
         / "explainer"
-        / f"{args.label}_player{args.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
+        / f"use_conv_{args.use_conv} \
+        _freeze_{args.freeze_backbone} \
+        {args.label}_player{args.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
     )
     log_and_checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    trainer = pl.Trainer(max_epochs=100, default_root_dir=log_and_checkpoint_dir, callbacks=RichProgressBar(leave=True))
+    trainer = pl.Trainer(max_epochs=10, default_root_dir=log_and_checkpoint_dir, callbacks=RichProgressBar(leave=True))
     trainer.fit(explainer, datamodule)
 
 
