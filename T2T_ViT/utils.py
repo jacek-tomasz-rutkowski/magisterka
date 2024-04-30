@@ -29,6 +29,8 @@ from models.t2t_vit import T2T_ViT, t2t_vit_14
 
 _logger = logging.getLogger(__name__)
 
+os.environ['TF_CPP_MIN_LOG_LEVEL']='2'  # Silence tensorflow warnings on CPU instructions, we only use TF logging.
+
 PROJECT_ROOT = Path(__file__).parent  # Path to the T2T_ViT/ directory.
 
 
