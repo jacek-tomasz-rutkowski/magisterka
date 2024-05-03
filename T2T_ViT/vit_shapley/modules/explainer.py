@@ -1,17 +1,14 @@
 import argparse
-from typing import Literal, Optional, cast
+import datetime
 import math
+from typing import Callable, Literal, Optional, cast
 
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 from pytorch_lightning.callbacks import RichProgressBar
-from transformers import SwinConfig, \
-    SwinForImageClassification
 
-
-import models.t2t_vit
-from utils import load_transferred_model
+from utils import is_true_string, load_transferred_model
 from vit_shapley.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks
 from vit_shapley.modules import explainer_utils
 from vit_shapley.modules.surrogate import Surrogate
@@ -41,7 +38,7 @@ class Explainer(pl.LightningModule):
     def __init__(
         self,
         output_dim: int,
-        backbone_name: Literal["vit", "t2t_vit", "swin"],
+        backbone_name: Literal["t2t_vit", "swin", "vit"],
         explainer_head_num_attention_blocks: int,
         explainer_head_mlp_layer_ratio: int,
         explainer_norm: bool,
@@ -53,31 +50,44 @@ class Explainer(pl.LightningModule):
         weight_decay: Optional[float],
         decay_power: Optional[str],
         warmup_steps: Optional[int],
-        use_convolution: bool = True,
+        use_convolution: bool,
+        use_tanh: bool = True,
+        use_softmax: bool = True,
+        divisor: float = 1.0,
+        target_class_lambda: float = 0.0,
+        num_players: Optional[int] = None,
         surrogate: Optional[pl.LightningModule] = None,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["surrogate"])
         self.backbone_name = backbone_name
-        assert surrogate is not None
+        surrogate_num_players = getattr(surrogate, 'num_players', None)
+        assert num_players is not None, f"Please specify num_players to Explainer; {surrogate_num_players=}"
+        if surrogate_num_players:
+            assert num_players == surrogate_num_players, \
+                f"Explainer's {num_players=} != {surrogate_num_players=}. It's technically OK but unexpected."
+        assert surrogate is not None, "Please provide a surrogate model to the explainer (even for eval, for grand())."
+        self.num_players = num_players
         self.surrogate = surrogate
 
         self.__null: Optional[torch.Tensor] = None
 
-        # Backbone initialization
-        self.backbone = load_transferred_model(backbone_name)
-
         # Nullify classification head built in the backbone module and rebuild.
+        self.backbone: nn.Module = load_transferred_model(backbone_name)
         if backbone_name == 't2t_vit':
             head_in_features = self.backbone.head.in_features
             self.backbone.head = nn.Identity()
             self.backbone.forward_features = self.backbone_forward_features  # type: ignore
-        elif backbone_name in ["swin", "vit"]:
+        elif backbone_name == "swin":
             head_in_features = self.backbone.classifier.in_features
+            # self.backbone.pooling = nn.Identity() ??
             self.backbone.classifier = nn.Identity()
+        elif backbone_name == "vit":
+            head_in_features = self.backbone.classifier.in_features
+            self.backbone = torch.nn.Sequential(self.backbone.vit.embeddings, self.backbone.vit.encoder)
+            # output of the backbone is (b, 197, 768)
         else:
             raise ValueError(f"Unexpected backbone_name: {backbone_name}")
-        self.head = nn.Linear(head_in_features, self.hparams["output_dim"])
 
         self.attention_blocks = nn.ModuleList(
             [
@@ -93,7 +103,7 @@ class Explainer(pl.LightningModule):
         self.mlps = nn.Sequential(
             nn.LayerNorm(head_in_features),
             nn.Linear(in_features=head_in_features, out_features=mid_dim),
-            self.backbone.blocks[0].mlp.act.__class__(),
+            nn.ReLU(),
             nn.Linear(in_features=mid_dim, out_features=output_dim),
         )
 
@@ -114,10 +124,10 @@ class Explainer(pl.LightningModule):
             169: dict(kernel_size=2, padding=0, stride=1),
             196: dict(kernel_size=1, padding=0, stride=1),
         }
-        conv2d_params = num_players_to_conv2d_params[self.surrogate.num_players]
+        conv2d_params = num_players_to_conv2d_params[num_players]
         if use_convolution:
-            self.conv = torch.nn.Conv2d(in_channels=self.backbone.num_features,
-                out_channels=self.backbone.num_features,
+            self.conv = torch.nn.Conv2d(in_channels=head_in_features,
+                out_channels=head_in_features,
                 kernel_size=conv2d_params['kernel_size'],
                 stride=conv2d_params['stride'],
                 padding=conv2d_params['padding']).to(self.device)
@@ -127,6 +137,7 @@ class Explainer(pl.LightningModule):
         # which means adding a constant to ensure that (for each item in the batch and each class)
         # the predicted player contributions sum up to the value for unmasked input minus the value for null input.
         # Pred: (batch, num_players, num_classes), grand: (batch, num_classes), null: (1, num_classes)
+        self.normalization: Callable | None
         self.normalization = (
             lambda pred, grand, null: pred + ((grand - null) - pred.sum(dim=1)).unsqueeze(1) / pred.shape[1]
         )
@@ -155,6 +166,10 @@ class Explainer(pl.LightningModule):
     def configure_optimizers(self):
         return explainer_utils.set_schedule(self)
 
+    # def state_dict(self):
+    #     """Remove 'surrogate' from the state_dict (the stuff saved in checkpoints)."""
+    #     return {k: v for k, v in super().state_dict().items() if not k.startswith("surrogate.")}
+
     def null(self, images: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Class probabilites for a fully masked input (cached after first call).
@@ -162,18 +177,21 @@ class Explainer(pl.LightningModule):
         Input: (batch, channel, height, width), only the shape is relevant.
         Output: (1, num_classes).
         """
-        assert self.surrogate is not None
         if self.__null is not None:
             return self.__null
         if images is None:
             raise RuntimeError("Call explainer.null(images) at least once to get null value.")
+        assert self.surrogate is not None
         self.surrogate.eval()
         with torch.no_grad():
             images = images[0:1].to(self.surrogate.device)  # Limit batch to one image.
-            masks = torch.zeros(1, 1, self.surrogate.num_players, device=self.surrogate.device)
+            masks = torch.zeros(1, 1, self.num_players, device=self.surrogate.device)
             images_masked = apply_masks(images, masks)  # Mask-out everything.
             logits = self.surrogate(images_masked)  # (1, channel, height, weight) -> (1, num_classes)
-            self.__null = torch.nn.Softmax(dim=1)(logits).to(self.device)  # (1, num_classes)
+            if self.hparams["use_softmax"]:
+                self.__null = torch.nn.Softmax(dim=1)(logits).to(self.device)  # (1, num_classes)
+            else:
+                self.__null = logits.to(self.device)
         return self.__null
 
     def grand(self, images: torch.Tensor) -> torch.Tensor:
@@ -186,10 +204,14 @@ class Explainer(pl.LightningModule):
         self.surrogate.eval()
         with torch.no_grad():
             images = images.to(self.surrogate.device)  # (batch, channel, height, weight)
-            masks = torch.ones(images.shape[0], 1, self.surrogate.num_players, device=self.surrogate.device)
+            masks = torch.ones(images.shape[0], 1, self.num_players, device=self.surrogate.device)
             images_masked = apply_masks(images, masks)  # (batch, channel, height, weight)
             logits = self.surrogate(images_masked)  # (batch, num_classes)
-            grand: torch.Tensor = torch.nn.Softmax(dim=1)(logits).to(self.device)  # (batch, num_classes)
+            grand: torch.Tensor
+            if self.hparams["use_softmax"]:
+                grand = torch.nn.Softmax(dim=1)(logits).to(self.device)  # (batch, num_classes)
+            else:
+                grand = logits.to(self.device)
         return grand
 
     def surrogate_multiple_masks(self, images: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
@@ -205,12 +227,16 @@ class Explainer(pl.LightningModule):
         with torch.no_grad():
             batch_size, num_masks_per_image, num_players = masks.shape
             assert (
-                num_players == self.surrogate.num_players
-            ), f"Surrogate was trained with {self.surrogate.num_players=} != {num_players=}. It's OK but unexpected."
+                num_players == self.num_players
+            ), f"Explainer was inited with {self.num_players=} but got {num_players=} from dataloader."
             images, masks = images.to(self.surrogate.device), masks.to(self.surrogate.device)
             images_masked = apply_masks(images, masks)  # (B * num_mask_samples, C, H, W)
             logits = self.surrogate(images_masked)  # (B * num_mask_samples, num_classes)
-            surrogate_values: torch.Tensor = torch.nn.Softmax(dim=1)(logits)  # (B * num_mask_samples, num_classes)
+            surrogate_values: torch.Tensor
+            if self.hparams["use_softmax"]:
+                surrogate_values = torch.nn.Softmax(dim=1)(logits)  # (B * num_mask_samples, num_classes)
+            else:
+                surrogate_values = logits
         return surrogate_values.reshape(batch_size, num_masks_per_image, -1).to(self.device)
 
     def backbone_forward_features(self, x: torch.Tensor) -> torch.Tensor:
@@ -244,20 +270,41 @@ class Explainer(pl.LightningModule):
 
         return x
 
-    def forward(self, images: torch.Tensor, surrogate_grand=None, surrogate_null=None, normalize: bool = True) -> torch.Tensor:
+    def forward(
+        self,
+        images: torch.Tensor,
+        surrogate_grand: torch.Tensor | None = None,
+        surrogate_null: torch.Tensor | None = None, normalize: bool = True
+    ) -> torch.Tensor:
         """
         Forward pass.
 
         Args:
-            surrogate_grand:
-            surrogate_null:
             images: (batch, channel, height, width)
+            surrogate_grand: optional (batch, num_classes).
+            surrogate_null: optional (1, num_classes).
 
         Returns predictions of shape (batch, num_players, num_classes).
         """
         assert self.surrogate is not None
 
-        x = self.backbone(x=images)  # (B, seq_length, embed_dim)
+        if self.backbone_name == 'swin':
+            # x = self.backbone.swin(images).last_hidden_state
+            x = self.backbone.swin(images, output_hidden_states=True).hidden_states[-3]
+            # shape of x is now (B, sequence_len=196, hidden_size=384).
+            x = torch.repeat_interleave(x, repeats=2, dim=-1)  # (B, seq_length, embed_dim=768)
+
+        elif self.backbone_name == 'vit':
+            x = self.backbone(images).last_hidden_state[:, 1:]
+            # output of vit is of size (b,197,768), we want (b,196,768)
+
+        elif self.backbone_name == 't2t_vit':
+            x = self.backbone(images)  # (B, seq_length, embed_dim)
+
+        else:
+            raise ValueError(f"Unexpected backbone_name: {self.backbone_name}")
+
+        assert x.shape[1] == 196, f"Expected {x.shape=} to be (batch, 196, embed_dim)."
 
         B, seq_length, embed_dim = x.shape
         r = int(math.sqrt(seq_length))
@@ -266,12 +313,11 @@ class Explainer(pl.LightningModule):
         # Reshape to (B, r, r, embed_dim).
         x = x.view(B, r, r, embed_dim)
 
-        s = int(math.sqrt(self.surrogate.num_players))
-        assert s * s == self.surrogate.num_players, f"Expected {self.surrogate.num_players=} to be a perfect square."
+        s = int(math.sqrt(self.num_players))
+        assert s * s == self.num_players, f"Expected {self.num_players=} to be a perfect square."
 
         # Adapt to (B, s, s, embed_dim).
         if r == s:
-            print('Udało się!')
             pass
         elif self.use_convolution:
             x = x.permute(0, 3, 1, 2)  # (B, embed_dim, r, r)
@@ -281,6 +327,7 @@ class Explainer(pl.LightningModule):
             # embedding_all = x
         else:
             indices = [int((i + 0.5) * 14 / s) for i in range(s)]
+            # indices = [int((i + 0.5) * 7 / s) for i in range(s)]
             x = x[:, indices, :, :][:, :, indices, :]  # (B, s, s, embed_dim)
             # embedding_all = x
 
@@ -291,7 +338,10 @@ class Explainer(pl.LightningModule):
             x, _ = layer_module(x, x, x, need_weights=False)
 
         pred = self.mlps(x)  # (B, num_players, embed_dim) -> # (B, num_players, num_classes)
-        pred = pred.tanh()
+        if self.hparams["use_tanh"]:
+            pred = pred.tanh()
+
+        pred = pred / self.hparams["divisor"]
 
         if normalize and self.normalization:
             if surrogate_grand is None:
@@ -309,7 +359,8 @@ class Explainer(pl.LightningModule):
         assert self.surrogate is not None
         # Images have shape (batch, channel, height, weight).
         # Masks have shape: (batch, num_masks_per_image, num_players).
-        images, masks = batch["images"], batch["masks"]
+        # Labels have shape: (batch,).
+        images, masks, labels = batch["images"], batch["masks"], batch["labels"]
 
         # Evaluate surrogate on masked, unmasked and fully masked inputs.
         surrogate_values = self.surrogate_multiple_masks(images, masks)  # (batch, num_masks_per_image, num_classes)
@@ -319,20 +370,12 @@ class Explainer(pl.LightningModule):
         # Evaluate explainer to get shap_values of shape (batch, num_players, num_classes).
         shap_values = self(images, surrogate_grand=surrogate_grand, surrogate_null=surrogate_null)
 
-        # Recall surrogate_values[b,n,c] is the value (the class probability outputted by the surrogate)
-        # of classifying images[b] masked with masks[b,n] as class c.
-        # We want it to be well-approximated by the sum of shap values for class c of players in masks[b,n]
-        # plus the null value for c.
-        # That is: surrogate_null[.,c] + sum_p masks[b,n,p] * shap_values[b, p, c]
-        values_pred = surrogate_null.unsqueeze(0) + masks.float() @ shap_values
-        # Shapes: (1, 1, num_classes) + (batch, num_masks_per_image, num_players) @ (batch, num_players, num_classes)
-        # = (batch, num_masks_per_image, num_classes).
-
         loss = explainer_utils.compute_metrics(
             self,
-            num_players=self.surrogate.num_players,
+            targets=labels,
+            masks=masks,
+            num_players=self.num_players,
             shap_values=shap_values,
-            values_pred=values_pred,
             values_target=surrogate_values,
             surrogate_grand=surrogate_grand,
             surrogate_null=surrogate_null,
@@ -343,7 +386,7 @@ class Explainer(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         assert self.surrogate is not None
-        images, masks = batch["images"], batch["masks"]
+        images, masks, labels = batch["images"], batch["masks"], batch["labels"]
 
         # Evaluate surrogate.
         surrogate_values = self.surrogate_multiple_masks(images, masks)
@@ -353,25 +396,34 @@ class Explainer(pl.LightningModule):
         # Evaluate explainer.
         shap_values = self(images, surrogate_grand=surrogate_grand, surrogate_null=surrogate_null)
 
-        # Get approximation of surrogate_values from shap_values.
-        values_pred = surrogate_null + masks.float() @ shap_values
-
         loss = explainer_utils.compute_metrics(
             self,
-            num_players=self.surrogate.num_players,
+            num_players=self.num_players,
+            targets=labels,
+            masks=masks,
             shap_values=shap_values,
-            values_pred=values_pred,
             values_target=surrogate_values,
             surrogate_grand=surrogate_grand,
             surrogate_null=surrogate_null,
             phase="val",
         )
 
+        self.log(
+            "val/macc-best",
+            explainer_utils.get_masked_accuracy(images, masks, labels, self.surrogate, shap_values, "best"),
+            prog_bar=True
+        )
+        self.log(
+            "val/macc-worst",
+            explainer_utils.get_masked_accuracy(images, masks, labels, self.surrogate, shap_values, "worst"),
+            prog_bar=True
+        )
+
         return loss
 
     def test_step(self, batch, batch_idx):
         assert self.surrogate is not None
-        images, masks = batch["images"], batch["masks"]
+        images, masks, labels = batch["images"], batch["masks"], batch["labels"]
 
         # Evaluate surrogate.
         surrogate_values = self.surrogate_multiple_masks(images, masks)
@@ -381,19 +433,29 @@ class Explainer(pl.LightningModule):
         # Evaluate explainer.
         shap_values = self(images, surrogate_grand=surrogate_grand, surrogate_null=surrogate_null)
 
-        # Get approximation of surrogate_values from shap_values.
-        values_pred = surrogate_null + masks.float() @ shap_values
-
         loss = explainer_utils.compute_metrics(
             self,
-            num_players=self.surrogate.num_players,
+            num_players=self.num_players,
+            targets=labels,
+            masks=masks,
             shap_values=shap_values,
-            values_pred=values_pred,
             values_target=surrogate_values,
             surrogate_grand=surrogate_grand,
             surrogate_null=surrogate_null,
             phase="test",
         )
+
+        self.log(
+            "test/macc-best",
+            explainer_utils.get_masked_accuracy(images, masks, labels, self.surrogate, shap_values, "best"),
+            prog_bar=True
+        )
+        self.log(
+            "test/macc-worst",
+            explainer_utils.get_masked_accuracy(images, masks, labels, self.surrogate, shap_values, "worst"),
+            prog_bar=True
+        )
+
         return loss
 
 
@@ -401,45 +463,63 @@ def main() -> None:
     torch.set_float32_matmul_precision("medium")
 
     parser = argparse.ArgumentParser(description="Explainer training")
-    parser.add_argument("--label", required=False, default="", type=str, help="label for checkpoints")
+    parser.add_argument("--label", default="", type=str, help="label for checkpoints")
     parser.add_argument("--num_players", required=True, type=int, help="number of players")
-    parser.add_argument("--lr", required=False, default=1e-4, type=float, help="explainer learning rate")
-    parser.add_argument("--wd", required=False, default=0.0, type=float, help="explainer weight decay")
-    parser.add_argument("--b", required=False, default=128, type=int, help="batch size")
-    parser.add_argument("--num_workers", required=False, default=0, type=int, help="number of dataloader workers")
-    parser.add_argument("--num_atts", required=False, default=1, type=int, help="number of attention blocks")
-    parser.add_argument("--mlp_ratio", required=False, default=4, type=int, help="ratio for the middle layer in mlps")
-
-    parser.add_argument("--use_conv", required=True, default=True, type=bool,
+    parser.add_argument("--lr", default=1e-4, type=float, help="explainer learning rate")
+    parser.add_argument("--wd", default=0.0, type=float, help="explainer weight decay")
+    parser.add_argument("--b", default=1024, type=int, help="batch size")
+    parser.add_argument("--num_workers", default=2, type=int, help="number of dataloader workers")
+    parser.add_argument("--num_atts", default=0, type=int, help="number of attention blocks")
+    parser.add_argument("--mlp_ratio", default=4, type=int, help="ratio for the middle layer in mlps")
+    parser.add_argument("--t_lambda", default=0, type=float, help="ratio for target class in loss")
+    parser.add_argument("--use_surg", default=True, type=is_true_string,
+                        help="use surrogate (rather than model trained without masks)")
+    parser.add_argument("--use_conv", default=False, type=is_true_string,
                         help="convolutions to match dim num_players")
-    parser.add_argument("--freeze_backbone", required=True, default='none', type=str,
+    parser.add_argument("--use_tanh", default=True, type=is_true_string,
+                        help="use tanh at explainer end")
+    parser.add_argument("--use_softmax", default=True, type=is_true_string,
+                        help="use softmax in explainer surrogate calls")
+    parser.add_argument("--divisor", default=1.0, type=float,
+                        help="divisor for pre-normalization shap values, should be somewhat smaller than num_players")
+
+    parser.add_argument("--target_model_name", required=True, default='vit', type=str, help="name of the target model")
+    parser.add_argument("--backbone_name", required=True, default='vit', type=str, help="name of the backbone")
+    parser.add_argument("--freeze_backbone", default='except_last_two', type=str,
                         help="freeze the backbone")
+    parser.add_argument("--mode", default='uniform', type=str, help="uniform or shapley mask sampling")
 
     args = parser.parse_args()
 
-    target_model = models.t2t_vit.t2t_vit_14(num_classes=10)
+    if args.use_surg:
+        surrogate_dir = PROJECT_ROOT / "saved_models/surrogate/cifar10"
+        if args.target_model_name == 't2t_vit':
+            surrogate_path = surrogate_dir / f"v2/player{args.num_players}/t2t_vit.ckpt"
+        elif args.target_model_name == 'swin':
+            surrogate_path = surrogate_dir / f"v2/player{args.num_players}/swin.ckpt"
+        elif args.target_model_name == 'vit':
+            surrogate_path = surrogate_dir / f"v2/player{args.num_players}/vit.ckpt"
+        else:
+            raise ValueError(f"Unexpected target model name: {args.target_model_name}")
 
-    configuration = SwinConfig()
-    target_model_2 = SwinForImageClassification(configuration) \
-                            .from_pretrained("microsoft/swin-tiny-patch4-window7-224",\
-                            num_labels=10,
-                            ignore_mismatched_sizes=True)
-
-    surrogate = Surrogate.load_from_checkpoint(
-        PROJECT_ROOT / "saved_models/surrogate/cifar10/_player16_lr1e-05_wd0.0_b256_epoch28.ckpt",
-        # PROJECT_ROOT / "checkpoints/surrogate/swin_player16_lr1e-05_wd0.0_b128/lightning_logs/version_1/checkpoints",
-        target_model=target_model,
-        backbone_name='t2t_vit',
-        num_players=args.num_players
-    )
+        # For older checkpoints, it's OK to set 'strict=False' and
+        # ignore Surrogate's "target_model.*" being saved checkpoint but not in Surrogate for evaluation.
+        target_model = Surrogate.load_from_checkpoint(
+            surrogate_path,
+            map_location="cuda",
+            strict=True,
+            # backbone_name="t2t_vit"  # Needs to be specified for very old checkpoints.
+        )
+    else:
+        target_model = load_transferred_model(args.target_model_name)
 
     explainer = Explainer(
         output_dim=10,
-        backbone_name='swin',
+        backbone_name=args.backbone_name,
         explainer_head_num_attention_blocks=args.num_atts,
         explainer_head_mlp_layer_ratio=args.mlp_ratio,
         explainer_norm=True,
-        surrogate=surrogate,
+        surrogate=target_model,
         efficiency_lambda=0,
         efficiency_class_lambda=0,
         freeze_backbone=args.freeze_backbone,
@@ -448,7 +528,12 @@ def main() -> None:
         weight_decay=args.wd,
         decay_power=None,
         warmup_steps=None,
+        target_class_lambda=args.t_lambda,
         use_convolution=args.use_conv,
+        num_players=args.num_players,
+        use_tanh=args.use_tanh,
+        use_softmax=args.use_softmax,
+        divisor=args.divisor
     )
 
     datamodule = CIFAR_10_Datamodule(
@@ -457,19 +542,43 @@ def main() -> None:
         paired_mask_samples=True,
         batch_size=args.b,
         num_workers=args.num_workers,
+        train_mode=args.mode,
+        val_mode="uniform",
+        test_mode="uniform"
     )
 
-    log_and_checkpoint_dir = (
-        PROJECT_ROOT
-        / "checkpoints"
-        / "explainer"
-        / f"use_conv_{args.use_conv} \
-        _freeze_{args.freeze_backbone} \
-        {args.label}_player{args.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
-    )
+    log_name = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M_")
+    if args.label:
+        log_name += f"{args.label}_"
+    if args.use_conv:
+        log_name += "conv_"
+    log_name += f"{args.backbone_name}_"
+    if args.target_model_name != args.backbone_name:
+        log_name += f"{args.target_model_name}_"
+    if args.freeze_backbone != "except_last_two":
+        log_name += f"freeze-{args.freeze_backbone}_"
+    if not args.use_surg:
+        log_name += "nosurg_"
+    log_name += f"{args.mode}_p{args.num_players}_lr{args.lr}_"
+    if args.wd:
+        log_name += f"wd{args.wd}_"
+    if args.b != 1024:
+        log_name += f"b{args.b}_"
+    log_name += f"t{args.t_lambda}_"
+    if args.divisor != 1.0:
+        log_name += f"d{args.divisor}_"
+    if not args.use_tanh:
+        log_name += "notanh_"
+    if not args.use_softmax:
+        log_name += "nosoftmax_"
+    log_name = log_name.removesuffix("_")
+    print(log_name)
+
+    log_and_checkpoint_dir = (PROJECT_ROOT / "checkpoints" / "explainer" / log_name)
     log_and_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    print(str(log_and_checkpoint_dir))
 
-    trainer = pl.Trainer(max_epochs=10, default_root_dir=log_and_checkpoint_dir, callbacks=RichProgressBar(leave=True))
+    trainer = pl.Trainer(max_epochs=500, default_root_dir=log_and_checkpoint_dir, callbacks=RichProgressBar(leave=True))
     trainer.fit(explainer, datamodule)
 
 
