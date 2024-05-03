@@ -10,6 +10,7 @@
 - msr_init: net parameter initialization.
 - progress_bar: progress bar mimic xlua.progress.
 '''
+import glob
 import logging
 import math
 import os
@@ -293,3 +294,20 @@ def is_true_string(s: str) -> bool:
     if s.lower() in ("false", "0", "no", "f", "n", ""):
         return False
     raise ValueError(f"Invalid truth value {s!r}")
+
+
+def find_latest_checkpoint(dir: Path) -> Path:
+    """Return latest (by mtime) .ckpt file in a given directory (recursively)."""
+    files = glob.glob(str(dir) + "/**/*.ckpt", recursive=True)
+    if not files:
+        raise FileNotFoundError(f"No checkpoints found in: {dir}")
+    files = sorted(files, key=lambda x: Path(x).stat().st_mtime)
+    return Path(files[-1])
+
+
+def find_latest_checkpoints(dir: Path) -> list[Path]:
+    """Return a list of all .ckpt files in a given directory (recursively), sorted by mtime."""
+    files = glob.glob(str(dir) + "/**/*.ckpt", recursive=True)
+    if not files:
+        raise FileNotFoundError(f"No checkpoints found in: {dir}")
+    return [Path(p) for p in sorted(files, key=lambda x: Path(x).stat().st_mtime, reverse=True)]
