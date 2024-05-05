@@ -1,4 +1,5 @@
 import argparse
+import copy
 import datetime
 import math
 from typing import Callable, Literal, Optional, cast
@@ -57,6 +58,7 @@ class Explainer(pl.LightningModule):
         target_class_lambda: float = 0.0,
         num_players: Optional[int] = None,
         surrogate: Optional[pl.LightningModule] = None,
+        use_surrogate_backbone: bool = False,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["surrogate"])
@@ -73,7 +75,12 @@ class Explainer(pl.LightningModule):
         self.__null: Optional[torch.Tensor] = None
 
         # Nullify classification head built in the backbone module and rebuild.
-        self.backbone: nn.Module = load_transferred_model(backbone_name)
+        self.backbone: nn.Module
+        if use_surrogate_backbone:
+            self.backbone = copy.deepcopy(self.surrogate.backbone)
+            self.backbone.head.in_features = self.surrogate.head.in_features
+        else:
+            self.backbone = load_transferred_model(backbone_name)
         if backbone_name == 't2t_vit':
             head_in_features = self.backbone.head.in_features
             self.backbone.head = nn.Identity()
@@ -465,29 +472,29 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Explainer training")
     parser.add_argument("--label", default="", type=str, help="label for checkpoints")
     parser.add_argument("--num_players", required=True, type=int, help="number of players")
-    parser.add_argument("--lr", default=1e-4, type=float, help="explainer learning rate")
+    parser.add_argument("--lr", default=5e-5, type=float, help="explainer learning rate")
     parser.add_argument("--wd", default=0.0, type=float, help="explainer weight decay")
-    parser.add_argument("--b", default=1024, type=int, help="batch size")
+    parser.add_argument("--b", default=256, type=int, help="batch size")
     parser.add_argument("--num_workers", default=2, type=int, help="number of dataloader workers")
     parser.add_argument("--num_atts", default=0, type=int, help="number of attention blocks")
     parser.add_argument("--mlp_ratio", default=4, type=int, help="ratio for the middle layer in mlps")
     parser.add_argument("--t_lambda", default=0, type=float, help="ratio for target class in loss")
     parser.add_argument("--use_surg", default=True, type=is_true_string,
-                        help="use surrogate (rather than model trained without masks)")
+                        help="use surrogate as target (rather than model trained without masks)")
+    parser.add_argument("--use_sb", default=False, type=is_true_string, help="use surrogate for backbone")
     parser.add_argument("--use_conv", default=False, type=is_true_string,
                         help="convolutions to match dim num_players")
-    parser.add_argument("--use_tanh", default=True, type=is_true_string,
+    parser.add_argument("--use_tanh", default=False, type=is_true_string,
                         help="use tanh at explainer end")
-    parser.add_argument("--use_softmax", default=True, type=is_true_string,
+    parser.add_argument("--use_softmax", default=False, type=is_true_string,
                         help="use softmax in explainer surrogate calls")
     parser.add_argument("--divisor", default=1.0, type=float,
                         help="divisor for pre-normalization shap values, should be somewhat smaller than num_players")
-
+    parser.add_argument("--accumulate", default=1, type=int, help="accumulate gradients")
     parser.add_argument("--target_model_name", required=True, default='vit', type=str, help="name of the target model")
     parser.add_argument("--backbone_name", required=True, default='vit', type=str, help="name of the backbone")
-    parser.add_argument("--freeze_backbone", default='except_last_two', type=str,
-                        help="freeze the backbone")
-    parser.add_argument("--mode", default='uniform', type=str, help="uniform or shapley mask sampling")
+    parser.add_argument("--freeze", default='none', type=str, help="freeze the backbone: none/except_last_two/all")
+    parser.add_argument("--mode", default='shapley', type=str, help="uniform or shapley mask sampling for training")
 
     args = parser.parse_args()
 
@@ -522,7 +529,7 @@ def main() -> None:
         surrogate=target_model,
         efficiency_lambda=0,
         efficiency_class_lambda=0,
-        freeze_backbone=args.freeze_backbone,
+        freeze_backbone=args.freeze,
         checkpoint_metric="loss",
         learning_rate=args.lr,
         weight_decay=args.wd,
@@ -533,7 +540,8 @@ def main() -> None:
         num_players=args.num_players,
         use_tanh=args.use_tanh,
         use_softmax=args.use_softmax,
-        divisor=args.divisor
+        divisor=args.divisor,
+        use_surrogate_backbone=args.use_sb
     )
 
     datamodule = CIFAR_10_Datamodule(
@@ -547,7 +555,7 @@ def main() -> None:
         test_mode="uniform"
     )
 
-    log_name = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M_")
+    log_name = datetime.datetime.now().strftime("%Y-%m-%d_%H:%M_")
     if args.label:
         log_name += f"{args.label}_"
     if args.use_conv:
@@ -555,22 +563,27 @@ def main() -> None:
     log_name += f"{args.backbone_name}_"
     if args.target_model_name != args.backbone_name:
         log_name += f"{args.target_model_name}_"
-    if args.freeze_backbone != "except_last_two":
-        log_name += f"freeze-{args.freeze_backbone}_"
+    if args.freeze != "none":
+        log_name += f"freeze-{args.freeze}_"
     if not args.use_surg:
         log_name += "nosurg_"
+    if args.use_sb:
+        log_name += "use-sb_"
     log_name += f"{args.mode}_p{args.num_players}_lr{args.lr}_"
     if args.wd:
         log_name += f"wd{args.wd}_"
-    if args.b != 1024:
+    if args.b != 256:
         log_name += f"b{args.b}_"
-    log_name += f"t{args.t_lambda}_"
+    if args.accumulate != 1:
+        log_name += f"acc{args.accumulate}_"
+    if args.t_lambda:
+        log_name += f"t{args.t_lambda}_"
     if args.divisor != 1.0:
         log_name += f"d{args.divisor}_"
-    if not args.use_tanh:
-        log_name += "notanh_"
-    if not args.use_softmax:
-        log_name += "nosoftmax_"
+    if args.use_tanh:
+        log_name += "tanh_"
+    if args.use_softmax:
+        log_name += "softmax_"
     log_name = log_name.removesuffix("_")
     print(log_name)
 
@@ -578,7 +591,12 @@ def main() -> None:
     log_and_checkpoint_dir.mkdir(parents=True, exist_ok=True)
     print(str(log_and_checkpoint_dir))
 
-    trainer = pl.Trainer(max_epochs=500, default_root_dir=log_and_checkpoint_dir, callbacks=RichProgressBar(leave=True))
+    trainer = pl.Trainer(
+        max_epochs=500,
+        accumulate_grad_batches=args.accumulate,
+        default_root_dir=log_and_checkpoint_dir,
+        callbacks=RichProgressBar(leave=True)
+    )
     trainer.fit(explainer, datamodule)
 
 

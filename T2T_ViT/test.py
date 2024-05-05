@@ -1,6 +1,7 @@
 import json
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
 import torch
 import pytorch_lightning as pl
@@ -22,6 +23,7 @@ def cleanup_checkpoint(source: Path, target: Path, prefix: str) -> None:
 
 
 def main(explainer_path: Path) -> None:
+    torch.set_float32_matmul_precision("medium")
     tmp_checkpoint_path = PROJECT_ROOT / "checkpoints" / "tmp.ckpt"
 
     use_surg = True
@@ -103,8 +105,8 @@ def main(explainer_path: Path) -> None:
         limit_val_batches=0.25,
         limit_test_batches=0.25,
     )
-    # trainer.validate(explainer, datamodule, ckpt_path=tmp_checkpoint_path)
-    results = trainer.test(explainer, datamodule)[0]  # , ckpt_path=str(tmp_checkpoint_path))
+    # trainer.validate(explainer, datamodule)
+    results: dict[str, Any] = dict(trainer.test(explainer, datamodule)[0])  # , ckpt_path=str(tmp_checkpoint_path))
     results['path'] = str(explainer_path)
     print(explainer_path)
     with (explainer_path.parent / "results.txt").open("a") as f:
@@ -118,4 +120,3 @@ if __name__ == "__main__":
             main(p)
         except Exception as e:
             print(e)
-

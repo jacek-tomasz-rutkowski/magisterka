@@ -24,6 +24,8 @@ Contains checkpoints with model weights that we want to keep:
 
 - `explainer/cifar10/`:
     - `v2/`:
+      - `t2t_vit.ckpt`: trained for 402 epochs (17k steps).
+    - `v3/`:
       - `t2t_vit.ckpt`:
-        trained with `python -m vit_shapley.modules.explainer --num_players NNN --lr 0.00005 --target_model_name=X --backbone_name=X --t_lambda 0.0 --mode=shapley --divisor=98`
-        for 402 epochs (17k steps).
+        trained with `CUDA_VISIBLE_DEVICES=x python -m vit_shapley.modules.explainer --num_players NNN --target_model_name=X --backbone_name=X --lr 0.00005 --acc 4 --divisor=98`
+
