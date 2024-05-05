@@ -74,23 +74,27 @@ class Explainer(pl.LightningModule):
 
         self.__null: Optional[torch.Tensor] = None
 
-        # Nullify classification head built in the backbone module and rebuild.
         self.backbone: nn.Module
         if use_surrogate_backbone:
             self.backbone = copy.deepcopy(self.surrogate.backbone)
-            self.backbone.head.in_features = self.surrogate.head.in_features
+            head_in_features = self.surrogate.head.in_features
         else:
             self.backbone = load_transferred_model(backbone_name)
+
+        # Nullify classification head built in the backbone module and rebuild.
         if backbone_name == 't2t_vit':
-            head_in_features = self.backbone.head.in_features
+            if not use_surrogate_backbone:
+                head_in_features = self.backbone.head.in_features
             self.backbone.head = nn.Identity()
             self.backbone.forward_features = self.backbone_forward_features  # type: ignore
         elif backbone_name == "swin":
-            head_in_features = self.backbone.classifier.in_features
+            if not use_surrogate_backbone:
+                head_in_features = self.backbone.classifier.in_features
             # self.backbone.pooling = nn.Identity() ??
             self.backbone.classifier = nn.Identity()
         elif backbone_name == "vit":
-            head_in_features = self.backbone.classifier.in_features
+            if not use_surrogate_backbone:
+                head_in_features = self.backbone.classifier.in_features
             self.backbone = torch.nn.Sequential(self.backbone.vit.embeddings, self.backbone.vit.encoder)
             # output of the backbone is (b, 197, 768)
         else:
@@ -271,7 +275,7 @@ class Explainer(pl.LightningModule):
         for blk in self.backbone.blocks:
             x = blk(x)
 
-        # Apply layer normalization.
+        # Apply layer normalization and remove classification token.
         x = self.backbone.norm(x)[:, 1:, :]
         # Shape is now (B, sequence_length, embed_dim).
 
