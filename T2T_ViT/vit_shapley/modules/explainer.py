@@ -11,7 +11,7 @@ from transformers import SwinConfig, \
 
 
 import models.t2t_vit
-from utils import load_checkpoint
+from utils import load_transferred_model
 from vit_shapley.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks
 from vit_shapley.modules import explainer_utils
 from vit_shapley.modules.surrogate import Surrogate
@@ -41,7 +41,7 @@ class Explainer(pl.LightningModule):
     def __init__(
         self,
         output_dim: int,
-        backbone_name: str,
+        backbone_name: Literal["vit", "t2t_vit", "swin"],
         explainer_head_num_attention_blocks: int,
         explainer_head_mlp_layer_ratio: int,
         explainer_norm: bool,
@@ -65,39 +65,19 @@ class Explainer(pl.LightningModule):
         self.__null: Optional[torch.Tensor] = None
 
         # Backbone initialization
-        if self.backbone_name == 't2t_vit':
-            self.backbone = models.t2t_vit.t2t_vit_14(num_classes=output_dim)
-            # backbone_path = PROJECT_ROOT / "saved_models/downloaded/imagenet/81.5_T2T_ViT_14.pth"
-            # backbone_path = PROJECT_ROOT / "saved_models/downloaded/cifar10/cifar10_t2t-vit_14_98.3.pth"
-            backbone_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
-            load_checkpoint(backbone_path, self.backbone, ignore_keys=["head.weight", "head.bias"])        
-            
-            # Nullify classification head built in the backbone module and rebuild.
+        self.backbone = load_transferred_model(backbone_name)
+
+        # Nullify classification head built in the backbone module and rebuild.
+        if backbone_name == 't2t_vit':
             head_in_features = self.backbone.head.in_features
             self.backbone.head = nn.Identity()
-            self.backbone.forward_features = self.backbone_forward_features
-            
-        elif self.backbone_name == 'swin':
-            configuration = SwinConfig()
-            self.backbone = SwinForImageClassification(configuration) \
-                            .from_pretrained("microsoft/swin-tiny-patch4-window7-224",\
-                            num_labels=10,
-                            ignore_mismatched_sizes=True)\
-                            .to(self.device)
-
-            backbone_path = PROJECT_ROOT / "checkpoints/transfer/cifar10/default/swin_epoch-4_acc-96.06.pth"
-            state_dict = torch.load(backbone_path)
-            self.backbone.load_state_dict(state_dict, strict=False)
-
-            # Nullify classification head built in the backbone module and rebuild.
+            self.backbone.forward_features = self.backbone_forward_features  # type: ignore
+        elif backbone_name in ["swin", "vit"]:
             head_in_features = self.backbone.classifier.in_features
             self.backbone.classifier = nn.Identity()
-            self.head = nn.Linear(head_in_features, self.hparams["output_dim"])
-
-        if self.backbone_name == 't2t_vit':
-            num_features = head_in_features # self.backbone.num_features
         else:
-            num_features = head_in_features
+            raise ValueError(f"Unexpected backbone_name: {backbone_name}")
+        self.head = nn.Linear(head_in_features, self.hparams["output_dim"])
 
         self.attention_blocks = nn.ModuleList(
             [
@@ -119,7 +99,7 @@ class Explainer(pl.LightningModule):
 
         self.use_convolution = use_convolution
         # https://ezyang.github.io/convolution-visualizer/index.html
-        num_players_to_conv2d_params = {
+        num_players_to_conv2d_params = {  # assumes an input sequence of length 196 = 14 * 14.
             4: dict(kernel_size=7, padding=0, stride=7),
             9: dict(kernel_size=6, padding=1, stride=5),
             16: dict(kernel_size=4, padding=1, stride=4),
@@ -278,7 +258,7 @@ class Explainer(pl.LightningModule):
         assert self.surrogate is not None
 
         x = self.backbone(x=images)  # (B, seq_length, embed_dim)
-        
+
         B, seq_length, embed_dim = x.shape
         r = int(math.sqrt(seq_length))
         assert seq_length == r * r, f"Expected {seq_length=} to be a perfect square."
@@ -309,7 +289,7 @@ class Explainer(pl.LightningModule):
 
         for layer_module in self.attention_blocks:
             x, _ = layer_module(x, x, x, need_weights=False)
-   
+
         pred = self.mlps(x)  # (B, num_players, embed_dim) -> # (B, num_players, num_classes)
         pred = pred.tanh()
 
@@ -430,9 +410,9 @@ def main() -> None:
     parser.add_argument("--num_atts", required=False, default=1, type=int, help="number of attention blocks")
     parser.add_argument("--mlp_ratio", required=False, default=4, type=int, help="ratio for the middle layer in mlps")
 
-    parser.add_argument("--use_conv", required=True, default=True, type=bool, 
+    parser.add_argument("--use_conv", required=True, default=True, type=bool,
                         help="convolutions to match dim num_players")
-    parser.add_argument("--freeze_backbone", required=True, default='none', type=str, 
+    parser.add_argument("--freeze_backbone", required=True, default='none', type=str,
                         help="freeze the backbone")
 
     args = parser.parse_args()

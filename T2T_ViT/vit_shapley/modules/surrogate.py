@@ -1,5 +1,5 @@
 import argparse
-from typing import Optional
+from typing import Literal, Optional
 
 import pytorch_lightning as pl
 import torch
@@ -8,12 +8,9 @@ from pytorch_lightning.callbacks import RichProgressBar
 from pytorch_lightning.utilities.types import OptimizerLRSchedulerConfig
 from torch.nn import functional as F
 from torch.optim import AdamW
-from transformers import get_cosine_schedule_with_warmup, SwinConfig, \
-    SwinForImageClassification, ViTForImageClassification
+from transformers import get_cosine_schedule_with_warmup
 
-
-import models.t2t_vit
-from utils import load_checkpoint
+from utils import load_transferred_model
 from vit_shapley.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks_to_batch
 
 
@@ -35,7 +32,7 @@ class Surrogate(pl.LightningModule):
     def __init__(
         self,
         output_dim: int,
-        backbone_name: str,
+        backbone_name: Literal["vit", "t2t_vit", "swin"],
         learning_rate: Optional[float],
         weight_decay: Optional[float],
         decay_power: Optional[str],
@@ -50,48 +47,18 @@ class Surrogate(pl.LightningModule):
         self.target_model = target_model
 
         # Backbone initialization
-        if self.backbone_name == 't2t_vit':
-            self.backbone = models.t2t_vit.t2t_vit_14(num_classes=output_dim)
-            # backbone_path = PROJECT_ROOT / "saved_models/downloaded/imagenet/81.5_T2T_ViT_14.pth"
-            # backbone_path = PROJECT_ROOT / "saved_models/downloaded/cifar10/cifar10_t2t-vit_14_98.3.pth"
-            backbone_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
-            load_checkpoint(backbone_path, self.backbone, ignore_keys=["head.weight", "head.bias"])        
-            
-            # Nullify classification head built in the backbone module and rebuild.
+        self.backbone = load_transferred_model(backbone_name)
+
+        # Nullify classification head built in the backbone module and rebuild.
+        if backbone_name == 't2t_vit':
             head_in_features = self.backbone.head.in_features
             self.backbone.head = nn.Identity()
-            self.head = nn.Linear(head_in_features, self.hparams["output_dim"])
-            
-
-        elif self.backbone_name == 'swin':
-
-            configuration = SwinConfig()
-            self.backbone = SwinForImageClassification(configuration) \
-                            .from_pretrained("microsoft/swin-tiny-patch4-window7-224",\
-                            num_labels=10,
-                            ignore_mismatched_sizes=True)\
-                            .to(self.device)
-
-            backbone_path = PROJECT_ROOT / "saved_models/transferred/cifar10/swin_epoch-37_acc-97.34.pth"
-            state_dict = torch.load(backbone_path)
-            self.backbone.load_state_dict(state_dict, strict=False)
-
-            # Nullify classification head built in the backbone module and rebuild.
+        elif backbone_name in ["swin", "vit"]:
             head_in_features = self.backbone.classifier.in_features
             self.backbone.classifier = nn.Identity()
-            self.head = nn.Linear(head_in_features, self.hparams["output_dim"]).to(self.device)
-
-        elif self.backbone_name == 'vit':
-            self.backbone = ViTForImageClassification.from_pretrained("google/vit-base-patch16-224", 
-                                                                 num_labels=10,
-                                                                 ignore_mismatched_sizes=True)
-            backbone_path = PROJECT_ROOT / "saved_models/transferred/cifar10/vit_epoch-47_acc-98.2.pth"
-            state_dict = torch.load(backbone_path)
-            self.backbone.load_state_dict(state_dict, strict=False)
-            
-            head_in_features = self.backbone.classifier.in_features
-            self.backbone.classifier = nn.Identity()            
-            self.head = nn.Linear(head_in_features, self.hparams["output_dim"]).to(self.device)
+        else:
+            raise ValueError(f"Unexpected backbone_name: {backbone_name}")
+        self.head = nn.Linear(head_in_features, self.hparams["output_dim"])
 
         # Set `num_players` variable.
         self.num_players = num_players or 196  # 14 * 14
@@ -101,14 +68,24 @@ class Surrogate(pl.LightningModule):
         Input: images_masked (B, C, H, W).
         Output: logits (B, output_dim).
         """
+        logits: torch.Tensor
         if self.backbone_name == 't2t_vit':
-            out: torch.Tensor = self.backbone(images_masked)
-            logits: torch.Tensor = self.head(out)
+            out = self.backbone(images_masked)
+            logits = self.head(out)
         elif self.backbone_name == 'swin' or self.backbone_name == 'vit':
-            out: torch.Tensor = self.backbone(images_masked).logits
-            logits: torch.Tensor = self.head(out)
-                    
+            out = self.backbone(images_masked).logits
+            logits = self.head(out)
         return logits
+
+    def state_dict(self, *args, **kwargs):
+        """Remove 'target_model' from the state_dict (the stuff saved in checkpoints)."""
+        # We need to be compatible with the extended API where a 'destination' dict may be given,
+        # and we need to update it (we can't make a copy).
+        destination = super().state_dict(*args, **kwargs).items()
+        for k, v in destination:
+            if k.startswith("target_model."):
+                del destination[k]
+        return destination
 
     @staticmethod
     def _surrogate_loss(logits: torch.Tensor, logits_target: torch.Tensor) -> torch.Tensor:
@@ -138,7 +115,6 @@ class Surrogate(pl.LightningModule):
                 logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)
             else:
                 logits_target = self.target_model(images.to(self.target_model.device)).logits.to(self.device)
-                
 
         loss = self._surrogate_loss(logits=logits, logits_target=logits_target)
         self.log("train/loss", loss, prog_bar=True)
@@ -148,33 +124,34 @@ class Surrogate(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         assert self.target_model is not None
         images, labels, masks = batch["images"], batch["labels"], batch["masks"]
-
-        # logits = self(images, masks)  # ['logits']
         images_masked, masks, labels = apply_masks_to_batch(images, masks, labels)
 
-        logits = self(images_masked)  # ['logits']
+        logits = self(images_masked)
+        logits_unmasked = self(images)
         if self.backbone_name == 't2t_vit':
             logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)
         else:
             logits_target = self.target_model(images.to(self.target_model.device)).logits.to(self.device)
-                
+
         self.log("val/loss", self._surrogate_loss(logits=logits, logits_target=logits_target), prog_bar=True)
         self.log("val/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
+        self.log("val/acc_unmasked", (logits_unmasked.argmax(dim=1) == labels).float().mean(), prog_bar=True)
 
     def test_step(self, batch, batch_idx):
         assert self.target_model is not None
         images, labels, masks = batch["images"], batch["labels"], batch["masks"]
         images_masked, masks, labels = apply_masks_to_batch(images, masks, labels)
 
-        logits = self(images_masked)  # ['logits']
-        # logits = self(images, masks)  # ['logits']
+        logits = self(images_masked)
+        logits_unmasked = self(images)
         if self.backbone_name == 't2t_vit':
             logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)
         else:
             logits_target = self.target_model(images.to(self.target_model.device)).logits.to(self.device)
-                 
+
         self.log("test/loss", self._surrogate_loss(logits=logits, logits_target=logits_target), prog_bar=True)
         self.log("test/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
+        self.log("test/acc_unmasked", (logits_unmasked.argmax(dim=1) == labels).float().mean(), prog_bar=True)
 
     def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
         optimizer = AdamW(
@@ -212,35 +189,7 @@ def main() -> None:
     parser.add_argument("--target_model_name", required=True, type=str, help="name of target model")
     args = parser.parse_args()
 
-
-    if args.target_model_name == 't2t_vit':
-        target_model = models.t2t_vit.t2t_vit_14(num_classes=10)
-        # target_model_path = PROJECT_ROOT / "saved_models/downloaded/cifar10/cifar10_t2t-vit_14_98.3.pth"
-        target_model_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
-        # load_checkpoint(target_model_path, target_model)
-        state_dict = torch.load(target_model_path)
-        target_model.load_state_dict(state_dict, strict=False)
-    
-    elif args.target_model_name == 'swin':
-        configuration = SwinConfig()
-        target_model = SwinForImageClassification(configuration) \
-                                .from_pretrained("microsoft/swin-tiny-patch4-window7-224",\
-                                num_labels=10,
-                                ignore_mismatched_sizes=True)
-
-        target_model_path = PROJECT_ROOT / "saved_models/transferred/cifar10/swin_epoch-37_acc-97.34.pth"
-        state_dict = torch.load(target_model_path)
-        target_model.load_state_dict(state_dict, strict=False)
-    
-    else:
-        target_model = ViTForImageClassification.from_pretrained("google/vit-base-patch16-224", 
-                                                                 num_labels=10,
-                                                                 ignore_mismatched_sizes=True)
-        target_model_path = PROJECT_ROOT / "saved_models/transferred/cifar10/vit_epoch-47_acc-98.2.pth"     
-        state_dict = torch.load(target_model_path)
-        target_model.load_state_dict(state_dict, strict=False)
-
-
+    target_model = load_transferred_model(args.target_model_name, device="cuda")
 
     surrogate = Surrogate(
         output_dim=10,
@@ -268,6 +217,7 @@ def main() -> None:
         / f"{args.label}_{args.backbone_name}_player{surrogate.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
     )
     log_and_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    print(f"{log_and_checkpoint_dir=}")
     trainer = pl.Trainer(
         max_epochs=20,
         default_root_dir=log_and_checkpoint_dir,
