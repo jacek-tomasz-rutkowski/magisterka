@@ -47,7 +47,17 @@ class GastroBatch(NamedTuple):
 
 
 class GastroDataset(torch.utils.data.Dataset):
-    """ """
+    """
+    Dataset for polyp detection in endoscopic images.
+
+    Contains a 1000 images with polyps (with segmentation and bounding boxes, sometimes more than one),
+    and 1000 images without polyps (full-zero segmentation and zero bounding boxes).
+
+    Args:
+    - root: path to a directory containing 'gastro-hyper-kvasir/'
+    - transform: a torchvision.transforms.v2.Transform
+        (a generic transform defined for images, masks, bboxes, possibly labels).
+    """
 
     label_names = ["normal", "polyp"]
     name_to_label = {name: label for label, name in enumerate(label_names)}
