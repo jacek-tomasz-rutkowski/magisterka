@@ -26,6 +26,11 @@ Contains checkpoints with model weights that we want to keep:
     - `v2/`:
       - `t2t_vit.ckpt`: trained for 402 epochs (17k steps).
     - `v3/`:
-      - `t2t_vit.ckpt`:
-        trained with `CUDA_VISIBLE_DEVICES=x python -m vit_shapley.modules.explainer --num_players NNN --target_model_name=X --backbone_name=X --lr 0.00005 --acc 4 --divisor=98`
-
+      trained with `CUDA_VISIBLE_DEVICES=x python -m vit_shapley.modules.explainer --num_players NNN --target_model_name=X --backbone_name=X --lr 0.00005 --acc 4 --divisor=$((NNN/2))`
+      (some with --use_sb=true)
+      - `player196/t2t_vit.ckpt`: 306 epochs, val/macc-best ~50%
+      - `player196/swin.ckpt`:    499 epochs, val/macc-best ~70% (could train for more)
+      - `player196/vit.ckpt`:     211 epochs, val/macc-best ~55%
+      - `player16/t2t_vit.ckpt`: 198 epochs, val/macc-best ~68% (100 epochs would have been fine)
+      - `player16/swin.ckpt`:    499 epochs, val/macc-best ~78%
+      - `player16/vit.ckpt`:     106 epochs, val/macc-best ~70%
