@@ -236,7 +236,7 @@ class CIFAR_10_Datamodule(pl.LightningDataModule):
             num_players=num_players,
             num_mask_samples=num_mask_samples,
             paired_mask_samples=paired_mask_samples,
-            root_path=PROJECT_ROOT / "CIFAR_10_data",
+            root_path=PROJECT_ROOT / "data",
             download=False,
         )
         self.batch_size = batch_size
