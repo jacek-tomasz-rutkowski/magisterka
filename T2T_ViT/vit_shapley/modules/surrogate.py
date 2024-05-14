@@ -11,7 +11,7 @@ from torch.optim import AdamW
 from transformers import get_cosine_schedule_with_warmup
 
 from utils import load_transferred_model
-from vit_shapley.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks_to_batch
+from datasets.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks_to_batch
 
 
 class Surrogate(pl.LightningModule):

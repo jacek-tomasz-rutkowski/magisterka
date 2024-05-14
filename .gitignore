@@ -4,5 +4,6 @@ __pycache__
 *checkpoint*
 saved_models
 CIFAR_10_data
+T2T_ViT/data
 lightning_logs
 pretrained_models
