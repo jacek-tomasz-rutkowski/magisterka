@@ -6,6 +6,7 @@ See:
 - https://datasets.simula.no/hyper-kvasir/ (for unlabeled images, which we used to find non-polyp images).
 - https://datasets.simula.no/kvasir/ (for general documentation).
 """
+
 import json
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -23,23 +24,25 @@ from torchvision.io import ImageReadMode
 class _PreGastroDataitem(NamedTuple):
     image_path: Path
     label: int
-    mask_path: Path | None
+    segmentation_path: Path | None
     bboxes: tv_tensors.BoundingBoxes | None
 
 
 class GastroDataitem(NamedTuple):
     """Item from the GastroDataset."""
+
     image: tv_tensors.Image  # shape CHW (RGB, before transform uint8, after float32).
     label: int  # 0 - normal, 1 - polyp.
-    mask: tv_tensors.Mask  # shape CHW, C=1, uint8 (0 - background, 1 - polyp).
+    segmentation: tv_tensors.Mask  # shape CHW, C=1, uint8 (0 - background, 1 - polyp).
     bboxes: tv_tensors.BoundingBoxes  # shape N4, int64, format XYXY.
 
 
 class GastroBatch(NamedTuple):
     """Batch of GastroDataitems (as collated by collate_gastro_batch)."""
+
     image: torch.Tensor  # shape BCHW, RGB, normalized float32.
     label: torch.Tensor  # shape B, int64
-    mask: torch.Tensor  # shape BCHW, C=1, uint8.
+    segmentation: torch.Tensor  # shape BCHW, C=1, uint8.
     bboxes: list[torch.Tensor]  # list of tensors of shape N4, int64, format XYXY.
 
 
@@ -61,13 +64,13 @@ class GastroDataset(torch.utils.data.Dataset):
 
         # Add images with polyps.
         for p in sorted((self.root / "gastro-hyper-kvasir/segmented-images/images").glob("*.jpg")):
-            mask_p = self.root / "gastro-hyper-kvasir/segmented-images/masks" / p.name
-            assert mask_p.exists(), f"Mask not found for {p.name}"
+            segmentation_p = self.root / "gastro-hyper-kvasir/segmented-images/masks" / p.name
+            assert segmentation_p.exists(), f"Mask not found for {p.name}"
             self.dataitems.append(
                 _PreGastroDataitem(
                     image_path=p,
                     label=self.name_to_label["polyp"],
-                    mask_path=mask_p,
+                    segmentation_path=segmentation_p,
                     bboxes=self._dict_to_bboxes_tensor(bounding_boxes[p.stem]),
                 )
             )
@@ -75,20 +78,22 @@ class GastroDataset(torch.utils.data.Dataset):
         # Add images without polyps.
         for p in sorted((self.root / "gastro-hyper-kvasir/images-images/images").glob("*.jpg")):
             self.dataitems.append(
-                _PreGastroDataitem(image_path=p, label=self.name_to_label["normal"], mask_path=None, bboxes=None)
+                _PreGastroDataitem(
+                    image_path=p, label=self.name_to_label["normal"], segmentation_path=None, bboxes=None
+                )
             )
 
     def __getitem__(self, index: int) -> GastroDataitem:
         d = self.dataitems[index]
         image = tv_tensors.Image(torchvision.io.read_image(str(d.image_path), mode=ImageReadMode.RGB))
         H, W = image.shape[-2], image.shape[-1]
-        mask = (
-            tv_tensors.Mask(torchvision.io.read_image(str(d.mask_path), mode=ImageReadMode.GRAY))
-            if d.mask_path
+        segmentation = (
+            tv_tensors.Mask(torchvision.io.read_image(str(d.segmentation_path), mode=ImageReadMode.GRAY))
+            if d.segmentation_path
             else torch.zeros_like(image)
         )
         bboxes = self._get_empty_bboxes_tensor(H, W) if d.bboxes is None else d.bboxes
-        dataitem = GastroDataitem(image=image, label=d.label, mask=mask, bboxes=bboxes)
+        dataitem = GastroDataitem(image=image, label=d.label, segmentation=segmentation, bboxes=bboxes)
         dataitem = self.transform(dataitem)
         return dataitem
 
@@ -205,7 +210,7 @@ def collate_gastro_batch(batch: list[GastroDataitem]) -> GastroBatch:
     return GastroBatch(
         image=default_collate([d.image for d in batch]),
         label=default_collate([d.label for d in batch]),
-        mask=default_collate([d.mask for d in batch]),
+        segmentation=default_collate([d.segmentation for d in batch]),
         bboxes=[d.bboxes for d in batch],  # We could use torch.nested in the future, but it's experimental.
     )
     # Alternatively, a more generic but less readable implementation is:
