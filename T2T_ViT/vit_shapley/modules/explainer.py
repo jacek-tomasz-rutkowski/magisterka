@@ -10,7 +10,7 @@ import torch.nn as nn
 from pytorch_lightning.callbacks import RichProgressBar
 
 from utils import is_true_string, load_transferred_model
-from vit_shapley.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks
+from datasets.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks
 from vit_shapley.modules import explainer_utils
 from vit_shapley.modules.surrogate import Surrogate
 

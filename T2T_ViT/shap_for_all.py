@@ -3,7 +3,7 @@ import scipy.special
 from tqdm import tqdm
 
 import models.t2t_vit
-from vit_shapley.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks_to_batch
+from datasets.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks_to_batch
 from vit_shapley.modules.surrogate import Surrogate
 
 class Shap_values():

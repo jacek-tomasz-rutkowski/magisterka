@@ -9,7 +9,7 @@ from transformers import get_cosine_schedule_with_warmup
 from torch.optim import AdamW
 from tqdm import tqdm
 
-from vit_shapley.CIFAR_10_Dataset import apply_masks_to_batch
+from datasets.CIFAR_10_Dataset import apply_masks_to_batch
 from vit_shapley.masks import make_masks_from_player_values, get_distances_from_center
 
 

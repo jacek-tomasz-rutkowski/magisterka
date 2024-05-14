@@ -10,7 +10,7 @@ from pytorch_lightning.callbacks import RichProgressBar
 from utils import load_transferred_model, find_latest_checkpoint, find_latest_checkpoints
 from vit_shapley.modules.surrogate import Surrogate
 from vit_shapley.modules.explainer import Explainer
-from vit_shapley.CIFAR_10_Dataset import CIFAR_10_Datamodule, PROJECT_ROOT
+from datasets.CIFAR_10_Dataset import CIFAR_10_Datamodule, PROJECT_ROOT
 
 
 def cleanup_checkpoint(source: Path, target: Path, prefix: str) -> None:
