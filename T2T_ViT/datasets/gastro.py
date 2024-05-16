@@ -263,7 +263,7 @@ class GastroDatasetWrapper(Dataset):
     def __getitem__(self, index: int) -> GastroDataitem:
         image, label, segmentation, bboxes = self.wrapped_dataset[index]
 
-        masks = self.generate_masks(
+        masks = generate_masks(
             num_players=self.num_players,
             num_mask_samples=self.num_mask_samples,
             paired_mask_samples=self.paired_mask_samples,
@@ -303,7 +303,9 @@ class Gastro_Datamodule(pl.LightningDataModule):
         self.train_mode = train_mode
         self.val_mode = val_mode
         self.test_mode = test_mode
-        self._dataloader_kwargs: dict[str, Any] = dict(batch_size=batch_size, num_workers=num_workers, collate_fn=collate_gastro_batch)
+        self._dataloader_kwargs: dict[str, Any] = dict(batch_size=batch_size, 
+                                                       num_workers=num_workers, 
+                                                       collate_fn=collate_gastro_batch)
 
 
     def setup(self, stage: Optional[str] = None) -> None:
