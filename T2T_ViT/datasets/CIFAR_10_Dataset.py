@@ -162,14 +162,14 @@ class CIFAR_10_Dataset(Dataset):
             masks = (random_state.random((num_samples_, num_players)) > thresholds).astype("int")
         elif mode == "shapley":
             masks = []
-            probs = (num_players - 1) / np.arange(1, num_players - 1) * \
+            probs = 1 / np.arange(1, num_players - 1) * \
                     (num_players - np.arange(1, num_players - 1))
                             
             probs = probs / np.sum(probs)
-            size = random_state.choice(np.arange(1, num_players - 1), p=probs, size=(1,))
+            size = random_state.choice(np.arange(1, num_players - 1), p=probs, size=(1,), replace=True)
             
             for _ in range(num_samples_):
-                masks_ = np.random.choice(num_players, size)
+                masks_ = np.random.choice(num_players, size, replace=False)
                 all_ones = np.ones((num_players,))
                 all_ones[masks_] = 0
                 masks.append(all_ones)
