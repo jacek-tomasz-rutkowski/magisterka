@@ -1,8 +1,9 @@
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from pathlib import Path
 
 import torch
 import torchvision
+import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
 import PIL.Image
@@ -276,7 +277,7 @@ class CIFAR_10_Datamodule(pl.LightningDataModule):
 
 
 def _tensor_to_image(
-    x: torch.Tensor, scale: float = 1.0, mean: Optional[np.ndarray] = None, std: Optional[np.ndarray] = None
+    x: torch.Tensor, scale: float = 1.0, mean: np.ndarray | float | None = None, std: np.ndarray | float | None = None
 ) -> PIL.Image.Image:
     """Converts a tensor of shape (C, H, W) to a pillow image, reversing normalization."""
     assert len(x.shape) == 3, f"Expected shape (C, H, W), got {x.shape}"
@@ -340,3 +341,65 @@ def _make_image_grid(
     for i, im in enumerate(images):
         grid.paste(im, ((i % n_columns) * W, (i // n_columns) * H))
     return grid
+
+
+def _get_heatmaps(
+    values: torch.Tensor,
+    images_shape: tuple[int, ...],
+    vmin: float | None = None,
+    vmax: float | None = None,
+    scale: float = 0.5,
+) -> list[PIL.Image.Image]:
+    """
+    Args:
+    - values: (B, num_players) where num_players is a perfect square.
+    - images_shape: (B, C, H, W)
+
+    Returns: list of B images representing values as a heatmap upscaled to (H, W).
+    """
+    B, num_players = values.shape
+    _B, C, H, W = images_shape
+    assert B == _B and C == 3, f"Shape mismatch {values.shape=}, {images_shape=}"
+    print(f"min={values.min().item():.3f}, max={values.max().item():.3f}")
+
+    mask_H = int(np.round(np.sqrt(num_players)))
+    mask_W = mask_H
+    assert mask_H * mask_W == num_players, f"{num_players=}, expected a square number."
+    values = values.view(B, mask_H, mask_W)
+
+    # Upscale values to image size.
+    h_repeats, w_repeats = int(np.ceil(H / mask_H)), int(np.ceil(W / mask_W))
+    values = values.repeat_interleave(h_repeats, dim=1).repeat_interleave(w_repeats, dim=2)
+    values = values[:, :H, :W]
+
+    # Normalize to 0..1, separately for each of the B images.
+    vmin_per_image: torch.Tensor | float
+    if vmin is None:
+        vmin_per_image = values.min(dim=2, keepdim=True).values.min(dim=1, keepdim=True).values
+    else:
+        vmin_per_image = vmin
+    vmax_per_image: torch.Tensor | float
+    if vmax is None:
+        vmax_per_image = values.max(dim=2, keepdim=True).values.max(dim=1, keepdim=True).values
+    else:
+        vmax_per_image = vmax
+    values = (values - vmin_per_image) / (vmax_per_image - vmin_per_image + 1e-8)
+
+    color_map = plt.get_cmap("viridis")
+    values = cast(torch.Tensor, color_map(values))  # (B, H, W, 4)
+    values = values[:, :, :, :3]  # Remove alpha channel
+    values = torch.tensor(values).permute(0, 3, 1, 2)  # (B, C, H, W)
+
+    return [_tensor_to_image(v, scale=scale, mean=0, std=1) for v in values]
+
+
+def get_heatmaps_grid(
+    images: torch.Tensor,
+    labels: torch.Tensor,
+    shap_values: torch.Tensor,
+    scale: float = 0.5,
+    alpha: float = 0.6
+) -> PIL.Image.Image:
+    heatmap_grid = _make_image_grid(_get_heatmaps(shap_values, images.shape, scale=scale))
+    image_grid = CIFAR_10_Dataset.to_image_grid(images, labels, scale=scale)
+    return PIL.Image.blend(image_grid, heatmap_grid, alpha=alpha)
