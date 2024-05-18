@@ -85,7 +85,8 @@ parser.add_argument(
 )
 # Transfer learning
 parser.add_argument("--transfer-learning", default=True, help="Enable transfer learning")
-parser.add_argument("--transfer-model", type=str, default=None, help="Path to pretrained model for transfer learning")
+parser.add_argument("--transfer-model", type=str, default="saved_models/downloaded/imagenet/81.5_T2T_ViT_14.pth", 
+                    help="Path to pretrained model for transfer learning")
 parser.add_argument(
     "--transfer-ratio", type=float, default=0.01, help="lr ratio between classifier and backbone in transfer learning"
 )
@@ -133,8 +134,8 @@ elif args.dataset == "gastro":
     train_set_full = GastroDataset(root = "./data")
     train_set_size = int(len(train_set_full) * 0.9)
     valid_set_size = len(train_set_full) - train_set_size
-    random_split(train_set_full, [train_set_size, valid_set_size])
     trainset, testset = random_split(train_set_full, [train_set_size, valid_set_size])
+
     dataloader_kwargs: dict[str, Any] = dict(num_workers=0, pin_memory=False, collate_fn=collate_gastro_batch) #, prefetch_factor=1, persistent_workers=True)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.b, shuffle=True, **dataloader_kwargs)
     testloader = torch.utils.data.DataLoader(testset, batch_size=256, shuffle=False, **dataloader_kwargs)
@@ -142,9 +143,10 @@ elif args.dataset == "gastro":
 else:
     print("Please use cifar10, cifar100 or gastro dataset.")
 
-# dataloader_kwargs: dict[str, Any] = dict(num_workers=0, pin_memory=False, prefetch_factor=1, persistent_workers=True)
-# trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.b, shuffle=True, **dataloader_kwargs)
-# testloader = torch.utils.data.DataLoader(testset, batch_size=256, shuffle=False, **dataloader_kwargs)
+if args.dataset != "gastro":
+    dataloader_kwargs: dict[str, Any] = dict(num_workers=0, pin_memory=False, prefetch_factor=1, persistent_workers=True)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.b, shuffle=True, **dataloader_kwargs)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=256, shuffle=False, **dataloader_kwargs)
 
 print(f"learning rate:{args.lr}, weight decay: {args.wd}")
 # create T2T-ViT Model
@@ -269,7 +271,7 @@ def test(epoch):
         best_acc = acc
 
 
-for epoch in range(start_epoch, start_epoch + 1):
+for epoch in range(start_epoch, start_epoch + 50):
     begin_time = time.time()
     train(epoch)
     test(epoch)

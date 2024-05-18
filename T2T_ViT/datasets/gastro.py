@@ -92,7 +92,8 @@ class GastroDataset(Dataset):
             )
 
         # Add images without polyps.
-        for p in sorted((self.root / "gastro-hyper-kvasir/images-images/images").glob("*.jpg")):
+        # changed path from images-images/images
+        for p in sorted((self.root / "gastro-hyper-kvasir/unlabeled-images-similar/images").glob("*.jpg")):
             self.dataitems.append(
                 _PreGastroDataitem(
                     image_path=p, label=self.name_to_label["normal"], segmentation_path=None, bboxes=None
@@ -101,16 +102,17 @@ class GastroDataset(Dataset):
 
     def __getitem__(self, index: int) -> GastroDataitem:
         d = self.dataitems[index]
-        image = tv_tensors.Image(torchvision.io.read_image(str(d.image_path), mode=ImageReadMode.RGB))
+        image = self.transform(tv_tensors.Image(torchvision.io.read_image(str(d.image_path), mode=ImageReadMode.RGB)))
         H, W = image.shape[-2], image.shape[-1]
         segmentation = (
-            tv_tensors.Mask(torchvision.io.read_image(str(d.segmentation_path), mode=ImageReadMode.GRAY))
+            self.transform(tv_tensors.Mask(torchvision.io.read_image(str(d.segmentation_path), mode=ImageReadMode.GRAY)))
             if d.segmentation_path
-            else torch.zeros_like(image)
+            # it was image, change to image[0] to fit shapes
+            else torch.zeros_like(image[:1])
         )
         bboxes = self._get_empty_bboxes_tensor(H, W) if d.bboxes is None else d.bboxes
         dataitem = GastroDataitem(image=image, label=d.label, segmentation=segmentation, bboxes=bboxes)
-        dataitem = self.transform(dataitem)
+
         return dataitem
 
     def __len__(self) -> int:
