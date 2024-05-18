@@ -177,6 +177,7 @@ class CIFAR_10_Dataset(Dataset):
                 masks.append(all_ones)
 
             masks = np.array(masks)  
+
         else:
             raise ValueError("'mode' must be 'uniform' or 'shapley'")
 

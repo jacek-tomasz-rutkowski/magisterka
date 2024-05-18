@@ -18,13 +18,16 @@ import torch.backends.cudnn as cudnn
 
 import torchvision
 import torchvision.transforms as transforms
+from torch.utils.data import random_split
 
 from utils import progress_bar
-from timm.models import create_model
+# from timm.models import create_model
 from utils import load_for_transfer_learning
+from datasets.gastro import GastroDataset, collate_gastro_batch
 
 # Models used in --model need to be imported here.
-from models.t2t_vit import *
+# from models.t2t_vit import *
+from models.t2t_vit import t2t_vit_14
 
 PROJECT_ROOT = Path(__file__).parent
 
@@ -81,7 +84,7 @@ parser.add_argument(
     help="Initialize model from this checkpoint (default: none)",
 )
 # Transfer learning
-parser.add_argument("--transfer-learning", default=False, help="Enable transfer learning")
+parser.add_argument("--transfer-learning", default=True, help="Enable transfer learning")
 parser.add_argument("--transfer-model", type=str, default=None, help="Path to pretrained model for transfer learning")
 parser.add_argument(
     "--transfer-ratio", type=float, default=0.01, help="lr ratio between classifier and backbone in transfer learning"
@@ -124,37 +127,50 @@ elif args.dataset == "cifar100":
     args.num_classes = 100
     trainset = torchvision.datasets.CIFAR100(root="./data", train=True, download=True, transform=transform_train)
     testset = torchvision.datasets.CIFAR100(root="./data", train=False, download=True, transform=transform_test)
-else:
-    print("Please use cifar10 or cifar100 dataset.")
 
-dataloader_kwargs: dict[str, Any] = dict(num_workers=2, pin_memory=False, prefetch_factor=1, persistent_workers=True)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.b, shuffle=True, **dataloader_kwargs)
-testloader = torch.utils.data.DataLoader(testset, batch_size=256, shuffle=False, **dataloader_kwargs)
+elif args.dataset == "gastro":
+    args.num_classes = 2
+    train_set_full = GastroDataset(root = "./data")
+    train_set_size = int(len(train_set_full) * 0.9)
+    valid_set_size = len(train_set_full) - train_set_size
+    random_split(train_set_full, [train_set_size, valid_set_size])
+    trainset, testset = random_split(train_set_full, [train_set_size, valid_set_size])
+    dataloader_kwargs: dict[str, Any] = dict(num_workers=0, pin_memory=False, collate_fn=collate_gastro_batch) #, prefetch_factor=1, persistent_workers=True)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.b, shuffle=True, **dataloader_kwargs)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=256, shuffle=False, **dataloader_kwargs)
+
+else:
+    print("Please use cifar10, cifar100 or gastro dataset.")
+
+# dataloader_kwargs: dict[str, Any] = dict(num_workers=0, pin_memory=False, prefetch_factor=1, persistent_workers=True)
+# trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.b, shuffle=True, **dataloader_kwargs)
+# testloader = torch.utils.data.DataLoader(testset, batch_size=256, shuffle=False, **dataloader_kwargs)
 
 print(f"learning rate:{args.lr}, weight decay: {args.wd}")
 # create T2T-ViT Model
 print("==> Building model..")
-net = create_model(
-    args.model,
-    pretrained=args.pretrained,
-    num_classes=args.num_classes,
-    drop_rate=args.drop,
-    drop_connect_rate=args.drop_connect,
-    drop_path_rate=args.drop_path,
-    drop_block_rate=args.drop_block,
-    global_pool=args.gp,
-    # CHANGED removed parameters not accepted by T2T_ViT
-    # bn_tf=args.bn_tf,
-    # bn_momentum=args.bn_momentum,
-    # bn_eps=args.bn_eps,
-    checkpoint_path=args.initial_checkpoint,
-    img_size=args.img_size,
-)
+net = t2t_vit_14(pretrained=False)
+# net = create_model(
+#     args.model,
+#     pretrained=args.pretrained,
+#     num_classes=args.num_classes,
+#     drop_rate=args.drop,
+#     drop_connect_rate=args.drop_connect,
+#     drop_path_rate=args.drop_path,
+#     drop_block_rate=args.drop_block,
+#     global_pool=args.gp,
+#     # CHANGED removed parameters not accepted by T2T_ViT
+#     # bn_tf=args.bn_tf,
+#     # bn_momentum=args.bn_momentum,
+#     # bn_eps=args.bn_eps,
+#     checkpoint_path=args.initial_checkpoint,
+#     img_size=args.img_size,
+# )
 
 if args.transfer_learning:
     print("transfer learning, load t2t-vit pretrained model")
     # CHANGED strict from False to True
-    load_for_transfer_learning(net, args.transfer_model, use_ema=True, strict=True, num_classes=args.num_classes)
+    load_for_transfer_learning(net, args.transfer_model, use_ema=True, strict=False, num_classes=args.num_classes)
 
 net = net.to(device)
 if device == "cuda":
@@ -183,6 +199,7 @@ if args.transfer_learning:
 else:
     parameters = net.parameters()
 
+
 optimizer = optim.SGD(parameters, lr=args.lr, momentum=0.9, weight_decay=args.wd)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=args.min_lr, T_max=60)
 
@@ -194,7 +211,7 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
-    for batch_idx, (inputs, targets) in enumerate(trainloader):
+    for batch_idx, (inputs, targets, segmentation, bboxes) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
         outputs = net(inputs)
@@ -222,7 +239,7 @@ def test(epoch):
     correct = 0
     total = 0
     with torch.no_grad():
-        for batch_idx, (inputs, targets) in enumerate(testloader):
+        for batch_idx, (inputs, targets, segmentation, bboxes) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
             outputs = net(inputs)
             loss = criterion(outputs, targets)
@@ -252,7 +269,7 @@ def test(epoch):
         best_acc = acc
 
 
-for epoch in range(start_epoch, start_epoch + 60):
+for epoch in range(start_epoch, start_epoch + 1):
     begin_time = time.time()
     train(epoch)
     test(epoch)

@@ -9,16 +9,22 @@ See:
 
 import json
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Optional
 
 import torch
 import torchvision.io
 import torchvision.models
 from torch.utils.data.dataloader import default_collate
+from torch.utils.data import random_split, Dataset, DataLoader
 
 from torchvision import tv_tensors
 from torchvision.transforms import v2
 from torchvision.io import ImageReadMode
+import pytorch_lightning as pl
+from datasets.CIFAR_10_Dataset import CIFAR_10_Dataset
+generate_masks = CIFAR_10_Dataset.generate_masks
+
+PROJECT_ROOT = Path(__file__).parent.parent  # Path to the T2T_ViT/ directory.
 
 
 class _PreGastroDataitem(NamedTuple):
@@ -46,7 +52,7 @@ class GastroBatch(NamedTuple):
     bboxes: list[torch.Tensor]  # list of tensors of shape N4, int64, format XYXY.
 
 
-class GastroDataset(torch.utils.data.Dataset):
+class GastroDataset(Dataset):
     """
     Dataset for polyp detection in endoscopic images.
 
@@ -232,3 +238,95 @@ def collate_gastro_batch(batch: list[GastroDataitem]) -> GastroBatch:
     #
     # collate_fn = partial(collate, collate_fn_map=default_collate_fn_map | {tv_tensors.BoundingBoxes: collate_bboxes})
     # ```
+
+class GastroDatasetWrapper(Dataset):
+    """
+    Wrapper dataset for polyp detection in endoscopic images.
+    """
+
+    def __init__(self, root: str | Path, 
+                num_players: int,
+                num_mask_samples: int,
+                paired_mask_samples: bool,
+                root_path: Path,
+                mode: str = "uniform",
+                transform: v2.Transform | None = None,) -> None:
+        
+        self.wrapped_dataset = GastroDataset(root_path, transform)
+        self.num_players = num_players
+        self.num_mask_samples = num_mask_samples
+        self.paired_mask_samples = paired_mask_samples
+        self.root_path = root_path
+        self.mode = mode
+  
+
+    def __getitem__(self, index: int) -> GastroDataitem:
+        image, label, segmentation, bboxes = self.wrapped_dataset[index]
+
+        masks = generate_masks(
+            num_players=self.num_players,
+            num_mask_samples=self.num_mask_samples,
+            paired_mask_samples=self.paired_mask_samples,
+            mode=self.mode
+        )
+        
+        return {"images": image, "labels": label, "masks": masks,
+                "segmentation": segmentation, "bboxes": bboxes}
+
+
+class Gastro_Datamodule(pl.LightningDataModule):
+    classes = GastroDataset.label_names
+
+    def __init__(
+        self,
+        num_players: int,
+        num_mask_samples: int,
+        paired_mask_samples: bool,
+        batch_size: int = 32,
+        num_workers: int = 0,
+        train_mode: str = "shapley",
+        val_mode: str = "uniform",
+        test_mode: str = "uniform",
+    ):
+        super().__init__()
+        self.num_players = num_players
+        self.num_mask_samples = num_mask_samples
+        self.paired_mask_samples = paired_mask_samples
+        self._dataset_kwargs: dict[str, Any] = dict(
+            num_players=num_players,
+            num_mask_samples=num_mask_samples,
+            paired_mask_samples=paired_mask_samples,
+            root_path=PROJECT_ROOT / "data",
+        )
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.train_mode = train_mode
+        self.val_mode = val_mode
+        self.test_mode = test_mode
+        self._dataloader_kwargs: dict[str, Any] = dict(batch_size=batch_size, 
+                                                       num_workers=num_workers, 
+                                                       collate_fn=collate_gastro_batch)
+
+
+    def setup(self, stage: Optional[str] = None) -> None:
+        if stage == "fit" or stage is None:
+            train_set_full = GastroDatasetWrapper(mode=self.train_mode, **self._dataset_kwargs)
+            train_set_size = int(len(train_set_full) * 0.9)
+            valid_set_size = len(train_set_full) - train_set_size
+            self.train, self.validate = random_split(train_set_full, [train_set_size, valid_set_size])
+            # Replace self.validate to be the same subset of indices, but use a Dataset with mode=val_mode.
+            val_set_full = GastroDatasetWrapper(mode=self.val_mode, **self._dataset_kwargs)
+            self.validate.dataset = val_set_full
+
+        if stage == "test" or stage is None:
+            self.test = GastroDatasetWrapper(mode=self.test_mode, **self._dataset_kwargs)
+
+    def train_dataloader(self):
+        return DataLoader(self.train, shuffle=True, **self._dataloader_kwargs)
+
+    def val_dataloader(self):
+        return DataLoader(self.validate, **self._dataloader_kwargs)
+
+    def test_dataloader(self):
+        return DataLoader(self.test, **self._dataloader_kwargs)
+    
