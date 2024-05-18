@@ -10,6 +10,7 @@ import PIL.Image
 import PIL.ImageDraw
 from torch.utils.data import random_split, Dataset, DataLoader
 
+import scipy
 PROJECT_ROOT = Path(__file__).parent.parent  # Path to the T2T_ViT/ directory.
 
 
@@ -160,11 +161,22 @@ class CIFAR_10_Dataset(Dataset):
             thresholds = random_state.random((num_samples_, 1))
             masks = (random_state.random((num_samples_, num_players)) > thresholds).astype("int")
         elif mode == "shapley":
-            probs = 1 / (np.arange(1, num_players) * (num_players - np.arange(1, num_players)))
-            probs = probs / probs.sum()
-            sizes = random_state.choice(np.arange(num_players - 1), p=probs, size=(num_samples_, 1)) + 1
-            thresholds = sizes.astype("float") / num_players
-            masks = (random_state.random((num_samples_, num_players)) > thresholds).astype("int")
+            masks = []
+            for _ in range(num_samples_):
+                probs = (num_players - 1) / (scipy.special.binom(num_players, np.arange(1, num_players - 1)) * \
+                                                        np.arange(1, num_players - 1) * \
+                                                            (num_players - np.arange(1, num_players - 1)))
+                            
+                probs = probs / np.sum(probs)
+                
+                size = random_state.choice(np.arange(1, num_players - 1), p=probs, size=(1,))
+                masks_ = np.random.choice(num_players, size)
+
+                all_ones = np.ones((num_players,))
+                all_ones[masks_] = 0
+                masks.append(all_ones)
+
+            masks = np.array(masks)  
         else:
             raise ValueError("'mode' must be 'uniform' or 'shapley'")
 
