@@ -1,6 +1,7 @@
 .vscode
 __pycache__
 .mypy_cache
+tmp
 *checkpoint*
 saved_models
 CIFAR_10_data

@@ -9,7 +9,6 @@ import PIL.Image
 import PIL.ImageDraw
 from torch.utils.data import random_split, Dataset, DataLoader
 
-import scipy
 PROJECT_ROOT = Path(__file__).parent.parent  # Path to the T2T_ViT/ directory.
 
 
@@ -158,23 +157,18 @@ class CIFAR_10_Dataset(Dataset):
 
         if mode == "uniform":
             thresholds = random_state.random((num_samples_, 1))
-            masks = (random_state.random((num_samples_, num_players)) > thresholds).astype("int")
+            masks = (random_state.random((num_samples_, num_players)) > thresholds).astype(np.bool_)
         elif mode == "shapley":
-            masks = []
-            probs = 1 / np.arange(1, num_players - 1) * \
-                    (num_players - np.arange(1, num_players - 1))
-                            
+            probs = 1 / np.arange(1, num_players - 1) * (num_players - np.arange(1, num_players - 1))
             probs = probs / np.sum(probs)
-            size = random_state.choice(np.arange(1, num_players - 1), p=probs, size=(1,), replace=True)
-            
-            for _ in range(num_samples_):
-                masks_ = np.random.choice(num_players, size, replace=False)
-                all_ones = np.ones((num_players,))
-                all_ones[masks_] = 0
-                masks.append(all_ones)
+            sizes = random_state.choice(np.arange(1, num_players - 1), p=probs, size=(num_samples_,), replace=True)
 
-            masks = np.array(masks)    
-            
+            mask_list = []
+            for i in range(num_samples_):
+                all_ones = np.ones((num_players,), dtype=np.bool_)
+                all_ones[np.random.choice(num_players, sizes[i], replace=False)] = 0
+                mask_list.append(all_ones)
+            masks = np.array(mask_list)
         else:
             raise ValueError("'mode' must be 'uniform' or 'shapley'")
 
@@ -300,7 +294,7 @@ def _tensor_to_image(
     else:
         img = img * std + mean
     img = np.clip(img * 255, 0, 255).astype("uint8")
-    pil_image = PIL.Image.fromarray(img, mode="RGB")
+    pil_image: PIL.Image.Image = PIL.Image.fromarray(img, mode="RGB")
     pil_image = pil_image.resize((int(scale * W), int(scale * H)), PIL.Image.Resampling.NEAREST)
     return pil_image
 

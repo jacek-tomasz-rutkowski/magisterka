@@ -9,7 +9,7 @@ See:
 
 import json
 from pathlib import Path
-from typing import Any, NamedTuple, Optional
+from typing import cast, Any, NamedTuple, Optional, TypedDict
 
 import torch
 import torchvision.io
@@ -34,7 +34,7 @@ class _PreGastroDataitem(NamedTuple):
     bboxes: tv_tensors.BoundingBoxes | None
 
 
-class GastroDataitem(NamedTuple):
+class GastroDataitem(TypedDict):
     """Item from the GastroDataset."""
 
     image: tv_tensors.Image  # shape CHW (RGB, before transform uint8, after float32).
@@ -43,7 +43,7 @@ class GastroDataitem(NamedTuple):
     bboxes: tv_tensors.BoundingBoxes  # shape N4, int64, format XYXY.
 
 
-class GastroBatch(NamedTuple):
+class GastroBatch(TypedDict):
     """Batch of GastroDataitems (as collated by collate_gastro_batch)."""
 
     image: torch.Tensor  # shape BCHW, RGB, normalized float32.
@@ -102,23 +102,22 @@ class GastroDataset(Dataset):
 
     def __getitem__(self, index: int) -> GastroDataitem:
         d = self.dataitems[index]
-        image = self.transform(tv_tensors.Image(torchvision.io.read_image(str(d.image_path), mode=ImageReadMode.RGB)))
-        H, W = image.shape[-2], image.shape[-1]
-        segmentation = (
-            self.transform(tv_tensors.Mask(torchvision.io.read_image(str(d.segmentation_path), mode=ImageReadMode.GRAY)))
+        image = tv_tensors.Image(torchvision.io.read_image(str(d.image_path), mode=ImageReadMode.RGB))
+        C, H, W = image.shape
+        segmentation = tv_tensors.Mask(
+            torchvision.io.read_image(str(d.segmentation_path), mode=ImageReadMode.GRAY)
             if d.segmentation_path
-            # it was image, change to image[0] to fit shapes
-            else torch.zeros_like(image[:1])
+            else torch.zeros((1, H, W), dtype=torch.uint8)
         )
         bboxes = self._get_empty_bboxes_tensor(H, W) if d.bboxes is None else d.bboxes
         dataitem = GastroDataitem(image=image, label=d.label, segmentation=segmentation, bboxes=bboxes)
-
-        return dataitem
+        return cast(GastroDataitem, self.transform(dataitem))
 
     def __len__(self) -> int:
         return len(self.dataitems)
 
-    def default_transform(self, target_image_size: int = 224) -> v2.Transform:
+    @staticmethod
+    def default_transform(target_image_size: int = 224) -> v2.Transform:
         # Essentially the same as torchvision.models.ResNet18_Weights.IMAGENET1K_V1.transforms(antialias=True).
         return v2.Compose(
             [
@@ -131,7 +130,8 @@ class GastroDataset(Dataset):
             ]
         )
 
-    def default_train_transform(self, target_image_size: int = 224) -> v2.Transform:
+    @staticmethod
+    def default_train_transform(target_image_size: int = 224) -> v2.Transform:
         return v2.Compose(
             [
                 v2.Resize([2 * target_image_size], antialias=True),
@@ -156,10 +156,11 @@ class GastroDataset(Dataset):
     def _dict_to_bboxes_tensor(d: dict[str, Any]) -> tv_tensors.BoundingBoxes:
         H = d["height"]
         W = d["width"]
-        bboxes = []
+        bbox_list = []
         for bbox in d["bbox"]:
             assert bbox["label"] == "polyp"
-            bboxes.append((bbox["xmin"], bbox["ymin"], bbox["xmax"], bbox["ymax"]))
+            bbox_list.append((bbox["xmin"], bbox["ymin"], bbox["xmax"], bbox["ymax"]))
+        bboxes = torch.tensor(bbox_list, dtype=torch.int32) if bbox_list else torch.empty(0, 4, dtype=torch.int32)
         return tv_tensors.BoundingBoxes(bboxes, format=tv_tensors.BoundingBoxFormat.XYXY, canvas_size=(H, W))
 
     @staticmethod
@@ -226,10 +227,10 @@ class TakeRandomCorner(v2.Transform):
 def collate_gastro_batch(batch: list[GastroDataitem]) -> GastroBatch:
     """Function for collating a list of dataitems into a batch, for use in dataloaders as collate_fn."""
     return GastroBatch(
-        image=default_collate([d.image for d in batch]),
-        label=default_collate([d.label for d in batch]),
-        segmentation=default_collate([d.segmentation for d in batch]),
-        bboxes=[d.bboxes for d in batch],  # We could use torch.nested in the future, but it's experimental.
+        image=default_collate([d["image"] for d in batch]),
+        label=default_collate([d["label"] for d in batch]),
+        segmentation=default_collate([d["segmentation"] for d in batch]),
+        bboxes=[d["bboxes"] for d in batch],  # We could use torch.nested in the future, but it's experimental.
     )
     # Alternatively, a more generic but less readable implementation is:
     # ```
@@ -241,29 +242,28 @@ def collate_gastro_batch(batch: list[GastroDataitem]) -> GastroBatch:
     # collate_fn = partial(collate, collate_fn_map=default_collate_fn_map | {tv_tensors.BoundingBoxes: collate_bboxes})
     # ```
 
+
 class GastroDatasetWrapper(Dataset):
     """
     Wrapper dataset for polyp detection in endoscopic images.
     """
 
-    def __init__(self, root: str | Path, 
+    def __init__(self, root: str | Path,
                 num_players: int,
                 num_mask_samples: int,
                 paired_mask_samples: bool,
                 root_path: Path,
                 mode: str = "uniform",
                 transform: v2.Transform | None = None,) -> None:
-        
         self.wrapped_dataset = GastroDataset(root_path, transform)
         self.num_players = num_players
         self.num_mask_samples = num_mask_samples
         self.paired_mask_samples = paired_mask_samples
         self.root_path = root_path
         self.mode = mode
-  
 
     def __getitem__(self, index: int) -> GastroDataitem:
-        image, label, segmentation, bboxes = self.wrapped_dataset[index]
+        d = self.wrapped_dataset[index]
 
         masks = generate_masks(
             num_players=self.num_players,
@@ -271,12 +271,15 @@ class GastroDatasetWrapper(Dataset):
             paired_mask_samples=self.paired_mask_samples,
             mode=self.mode
         )
-        
-        return {"images": image, "labels": label, "masks": masks,
-                "segmentation": segmentation, "bboxes": bboxes}
+
+        return {"images": d["image"], "labels": d["label"], "masks": masks,
+                "segmentation": d["segmentation"], "bboxes": d["bboxes"]}
+
+    def __len__(self) -> int:
+        return len(self.wrapped_dataset)
 
 
-class Gastro_Datamodule(pl.LightningDataModule):
+class GastroDatamodule(pl.LightningDataModule):
     classes = GastroDataset.label_names
 
     def __init__(
@@ -305,10 +308,9 @@ class Gastro_Datamodule(pl.LightningDataModule):
         self.train_mode = train_mode
         self.val_mode = val_mode
         self.test_mode = test_mode
-        self._dataloader_kwargs: dict[str, Any] = dict(batch_size=batch_size, 
-                                                       num_workers=num_workers, 
+        self._dataloader_kwargs: dict[str, Any] = dict(batch_size=batch_size,
+                                                       num_workers=num_workers,
                                                        collate_fn=collate_gastro_batch)
-
 
     def setup(self, stage: Optional[str] = None) -> None:
         if stage == "fit" or stage is None:
@@ -331,4 +333,3 @@ class Gastro_Datamodule(pl.LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(self.test, **self._dataloader_kwargs)
-    
