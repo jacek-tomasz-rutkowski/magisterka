@@ -1,3 +1,17 @@
+## Setup środowiska
+* Instalujemy conda'ę, najlepiej z [conda-forge](https://conda-forge.org/download/)
+* Instalujemy środowisko `CONDA_OVERRIDE_CUDA=12.2 conda env create -f environment.yml -p ./condaenv`
+
+## SLURM
+* Uruchomienie jobu: `JOB_ID=$(sbatch job-transfer.sh); JOB_ID=${JOB_ID##* }` (ustawiamy w `job-transfer.sh` time limit, konfigurację w `transfer.yaml`).
+* Oglądanie outputu na bieżąco: `tail --follow jobs/*/${JOB_ID}.stdout`
+* Oglądanie wykresów: `tensorboard --logdir=checkpoints/ --port=6056`
+* Oglądanie statusu GPU: `srun --jobid ${JOB_ID} nvidia-smi`
+* Ubijanie jobu: `srun --jobid ${JOB_ID} killall -u -SIGINT python` lub `scancel --me --signal=SIGINT ${JOB_ID} --full`
+* Działające joby: `squeue -u $USER`
+* Zakończone joby: `sacct  --format=JobID,Start,End,Elapsed,NCPUS,NodeList,NTasks,ExitCode,JobName,User,State`
+* Wznawianie treningu z checkpointu: patrz `job-continue.sh`
+
 ## saved_models/
 Contains checkpoints with model weights that we want to keep:
 - `downloaded/`: downloaded from https://github.com/yitu-opensource/T2T-ViT

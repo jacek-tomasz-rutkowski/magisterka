@@ -599,7 +599,14 @@ def main() -> None:
         max_epochs=500,
         accumulate_grad_batches=args.accumulate,
         default_root_dir=log_and_checkpoint_dir,
-        callbacks=RichProgressBar(leave=True)
+        callbacks=RichProgressBar(
+            leave=True,
+            console_kwargs=dict(
+                force_terminal=True,
+                force_interactive=True,
+                width=250,
+            )
+        )
     )
     trainer.fit(explainer, datamodule)
 

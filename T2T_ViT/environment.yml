@@ -1,0 +1,81 @@
+# CONDA_OVERRIDE_CUDA=12.2 conda env create -f environment.yml -p ~/jacek-rutkowski/condaenv
+# or
+# srun --partition=common --qos=2gpu8h --time 0:50:00 --gres=gpu:1 \
+#   conda env create -f environment.yml -p ~/jacek-rutkowski/condaenv
+
+# W razie potrzeby instalacji środowiska bez CUDA, należy wykomentować cuda-version i zamienić pytorch-gpu na -cpu.
+
+name: main # Opcja -n do polecenia conda create to nadpisuje.
+channels:
+  #  - nvidia
+  - conda-forge
+  - nodefaults
+# variables:
+#   OMP_NUM_THREADS: 1 # Wymagane do ograniczenia liczby wątków podczas treningu.
+dependencies:
+  # Can't use Python 3.12 due to https://github.com/pytorch/pytorch/issues/120233
+  # This will probably fixed with torch 2.4, when it's available on conda-forge.
+  - python=3.11
+
+  # Wymagamy cudatoolkit<=12.x bo na wszystkich node entropy `nvidia-smi` pokazuje driver 535.154.05. Patrz Table 2
+  # (Minor Version Compatibility) w https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html
+  - cuda-version=12
+
+  # Pytorch:
+  - pytorch>=2.1
+  - pytorch-gpu>=2.1
+  - torchvision>=0.15
+
+  - captum
+  - fastai>=2.7
+  - jsonargparse  # needed for LightningCLI
+  - lightning>=2.1
+  - matplotlib
+  - pandas>=2.1
+  - pillow>=10
+  - pydantic
+  - rich
+  - scikit-image
+  - scikit-learn
+  - scikit-video
+  - seaborn
+  - tensorboard
+  - tensorboardX
+  - timm
+  - torchmetrics
+  - tokenizers
+  - transformers
+  - typeshed-client  # needed for LightningCLI
+  - tqdm
+
+  # Notebooks (potrzebne do widgetów w jupyter):
+  - ipykernel
+  - ipywidgets
+  - nb_conda_kernels
+  - ipympl
+  - widgetsnbextension
+  - pycairo
+
+  # Dev:
+  - autopep8
+  - black
+  - flake8
+  - isort
+  - mypy
+  - mypy_extensions
+  - nbconvert
+  - pycodestyle
+  - pytest
+  - ruff
+  - types-PyYAML
+  - types-requests
+  - types-six
+  - types-toml
+  - typing-extensions
+  - yamllint
+
+  # Pakiety z pipa:
+  - pip
+  - pip:
+      - quantus
+  #     - livelossplot

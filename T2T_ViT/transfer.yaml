@@ -1,0 +1,69 @@
+model:
+  backbone: vit_small_patch16_224.augreg_in1k  # swin_tiny_patch4_window7_224.ms_in1k
+  num_classes: 10
+  optimizer_kwargs:
+    opt: sgd
+    lr: 0.001
+    lr_head: 0.01
+    weight_decay: 5e-4
+    momentum: 0.9
+  scheduler_kwargs:
+    sched: cosine
+    warmup_epochs: 1
+    min_lr: 1e-5
+
+data:
+  class_path: CIFAR10DataModule  # GastroDataModule
+  init_args:
+    dataloader_kwargs:
+      batch_size: 64
+      num_workers: 4
+      pin_memory: true
+
+trainer:
+  logger: true
+  max_epochs: 1000
+  accumulate_grad_batches: 1
+  callbacks:
+    - class_path: RichProgressBar
+      init_args:
+        leave: true
+        console_kwargs:
+          force_terminal: true
+          force_interactive: true
+          width: 250
+
+seed_everything: 1
+
+# As a backbone:
+# - swin_tiny_patch4_window7_224.ms_in1k     , model size: 106.1 MiB parameters: 26.3 M
+# - vit_small_patch16_224.augreg_in1k        , model size:  82.7 MiB parameters: 20.7 M
+# We could also check:
+# - efficientvit_b0.r224_in1k                , model size:   8.2 MiB parameters: 2.0 M
+# - efficientvit_b1.r224_in1k                , model size:  28.7 MiB parameters: 7.2 M
+# - efficientvit_b2.r224_in1k                , model size:  83.2 MiB parameters: 20.8 M
+# - efficientvit_b3.r224_in1k                , model size: 176.1 MiB parameters: 44.0 M
+# - efficientvit_m0.r224_in1k                , model size:   8.4 MiB parameters: 2.1 M
+# - efficientvit_m1.r224_in1k                , model size:  10.8 MiB parameters: 2.7 M
+# - efficientvit_m2.r224_in1k                , model size:  15.3 MiB parameters: 3.8 M
+# - efficientvit_m3.r224_in1k                , model size:  25.4 MiB parameters: 6.3 M
+# - efficientvit_m4.r224_in1k                , model size:  32.4 MiB parameters: 8.0 M
+# - efficientvit_m5.r224_in1k                , model size:  46.5 MiB parameters: 11.5 M
+# - tiny_vit_5m_224.in1k                     , model size:  21.2 MiB parameters: 4.8 M
+# - tiny_vit_11m_224.in1k                    , model size:  42.1 MiB parameters: 10.1 M
+# - tiny_vit_21m_224.in1k                    , model size:  80.6 MiB parameters: 19.7 M
+# - vit_tiny_patch16_224.augreg_in21k_ft_in1k    , model size:  21.1 MiB parameters: 5.3 M
+# - vit_tiny_r_s16_p8_224.augreg_in21k_ft_in1k   , model size:  23.4 MiB parameters: 5.9 M
+# - vit_xsmall_patch16_clip_224.tinyclip_yfcc15m , model size:  31.1 MiB parameters: 7.8 M
+# - vit_wee_patch16_reg1_gap_256.sbb_in1k        , model size:  50.2 MiB parameters: 12.6 M  <-- from "Searching for Better ViT Baselines (For the GPU Poor)" but 256
+# - vit_small_patch32_224.augreg_in21k           , model size:  85.8 MiB parameters: 21.5 M
+# - vit_little_patch16_reg4_gap_256.sbb_in1k     , model size:  84.7 MiB parameters: 21.2 M   <-- from "Searching for Better ViT Baselines (For the GPU Poor)" but 256
+# - vit_medium_patch16_clip_224.tinyclip_yfcc15m , model size: 146.2 MiB parameters: 36.6 M
+# - swinv2_cr_tiny_ns_224.sw_in1k                , model size: 106.2 MiB parameters: 26.3 M
+# - swin_s3_tiny_224.ms_in1k                     , model size: 107.8 MiB parameters: 26.3 M
+# - resnet50.d_in1k                          , model size:  90.0 MiB parameters: 22.4 M
+
+# Originally:
+# - t2t_vit (t2t_vit_14),  model size: 80.7 MiB parameters: 20.2 M
+# - swin (microsoft/swin-tiny-patch4-window7-224), model size: 105.2 MiB parameters: 26.3 M
+# - vit (google/vit-base-patch16-224), model size: 327.3 MiB  parameters: 81.8 M
