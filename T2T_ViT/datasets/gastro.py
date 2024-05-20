@@ -86,10 +86,10 @@ class GastroDataset(Dataset):
     label_names = ["normal", "polyp"]
     name_to_label = {name: label for label, name in enumerate(label_names)}
 
-    def __init__(self, train: bool, root: str | Path, transform: v2.Transform | None = None) -> None:
+    def __init__(self, train: str, root: str | Path, transform: v2.Transform | None = None) -> None:
         self.root = Path(root).expanduser()
         self.train = train
-        if train:
+        if train == "train":
             self.transform = transform or self.default_train_transform()
         else:
             self.transform = transform or self.default_transform()
@@ -103,10 +103,13 @@ class GastroDataset(Dataset):
 
         # Add images with polyps.
         all_polyps = sorted((self.root / "gastro-hyper-kvasir/segmented-images/images").glob("*.jpg"))
-        if train:
+        if train == "train":
             polyps = all_polyps[:int(0.9*len(all_polyps))]
-        else:
+        elif train == "test":
             polyps = all_polyps[int(0.9*len(all_polyps)):]
+        else: 
+            polyps = all_polyps
+
         for p in polyps:
             segmentation_p = self.root / "gastro-hyper-kvasir/segmented-images/masks" / p.name
             assert segmentation_p.exists(), f"Mask not found for {p.name}"
@@ -122,10 +125,13 @@ class GastroDataset(Dataset):
         # Add images without polyps.
         # changed path from images-images/images
         all_no_polyps = sorted((self.root / "gastro-hyper-kvasir/unlabeled-images-similar/images").glob("*.jpg"))
-        if train:
+        if train == "train":
             no_polyps = all_no_polyps[:int(0.9*len(all_no_polyps))]
-        else:
+        elif train == "test":
             no_polyps = all_no_polyps[int(0.9*len(all_no_polyps)):]
+        else:
+            no_polyps = all_no_polyps
+
         for p in no_polyps:
             self.dataitems.append(
                 _PreGastroDataitem(
@@ -300,7 +306,8 @@ class GastroDatasetWrapper(Dataset):
                 mode: str = "uniform",
                 transform: v2.Transform | None = None,) -> None:
         
-        self.wrapped_dataset = GastroDataset(root, transform)
+        self.wrapped_dataset = GastroDataset(train="surrogate", root=root, transform=transform)
+
         self.num_players = num_players
         self.num_mask_samples = num_mask_samples
         self.paired_mask_samples = paired_mask_samples
@@ -360,6 +367,8 @@ class Gastro_Datamodule(pl.LightningDataModule):
         self._dataloader_kwargs: dict[str, Any] = dict(batch_size=batch_size, 
                                                        num_workers=num_workers,
                                                        collate_fn=collate_gastro_masks_batch)
+        
+        self.prepare_data_per_node = True
 
 
     def setup(self, stage: Optional[str] = None) -> None:

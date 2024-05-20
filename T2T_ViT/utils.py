@@ -68,7 +68,7 @@ def load_transferred_model(name, dataset, num_classes, path=None, device="cpu"):
         swin_path = "swin_epoch-37_acc-97.34.pth"
     if dataset == "gastro":
         transferred_dir = PROJECT_ROOT / "saved_models/transferred/gastro"
-        t2t_vit_path = "epoch-13_acc-90.0.pth"
+        t2t_vit_path = "epoch-45_acc-96.0.pth"
         # TODO: vit_path and swin_path 
 
     if name == "t2t_vit":

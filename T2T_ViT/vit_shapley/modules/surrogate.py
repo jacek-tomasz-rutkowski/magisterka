@@ -126,8 +126,6 @@ class Surrogate(pl.LightningModule):
 
         loss = self._surrogate_loss(logits=logits, logits_target=logits_target)
         self.log("train/loss", loss, prog_bar=True)
-        print(f'logits.argmax(dim=1) dtype is {type(logits.argmax(dim=1))}')
-        print(f'labels type is {type(labels)}')
         self.log("train/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
         self.log("train/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
         return loss
