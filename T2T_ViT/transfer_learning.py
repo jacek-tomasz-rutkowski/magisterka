@@ -21,7 +21,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import random_split
 
 from utils import progress_bar
-# from timm.models import create_model
+from timm.models import create_model
 from utils import load_for_transfer_learning
 from datasets.gastro import GastroDataset, collate_gastro_batch
 
@@ -36,7 +36,7 @@ parser.add_argument("--label", default="default", type=str, help="label for chec
 parser.add_argument("--lr", default=0.01, type=float, help="learning rate")
 parser.add_argument("--wd", default=5e-4, type=float, help="weight decay")
 parser.add_argument("--min-lr", default=2e-4, type=float, help="minimal learning rate")
-parser.add_argument("--dataset", type=str, default="cifar10", help="cifar10 or cifar100")
+parser.add_argument("--dataset", type=str, default="gastro", help="cifar10 or cifar100")
 parser.add_argument("--b", type=int, default=128, help="batch size")
 parser.add_argument("--resume", "-r", action="store_true", help="resume from checkpoint")
 parser.add_argument(
@@ -45,7 +45,7 @@ parser.add_argument(
     default=False,
     help="Start with pretrained version of specified network (if avail)",
 )
-parser.add_argument("--num-classes", type=int, default=10, metavar="N", help="number of label classes (default: 1000)")
+parser.add_argument("--num-classes", type=int, default=2, metavar="N", help="number of label classes (default: 1000)")
 parser.add_argument("--model", default="T2t_vit_14", type=str, metavar="MODEL", help="Name of model to train")
 parser.add_argument("--drop", type=float, default=0.0, metavar="PCT", help="Dropout rate (default: 0.0)")
 parser.add_argument(
@@ -131,10 +131,11 @@ elif args.dataset == "cifar100":
 
 elif args.dataset == "gastro":
     args.num_classes = 2
-    train_set_full = GastroDataset(root = "./data")
-    train_set_size = int(len(train_set_full) * 0.9)
-    valid_set_size = len(train_set_full) - train_set_size
-    trainset, testset = random_split(train_set_full, [train_set_size, valid_set_size])
+    trainset = GastroDataset(train=True, root = "./data")
+    testset = GastroDataset(train=False, root = "./data")
+    # train_set_size = int(len(train_set_full) * 0.9)
+    # valid_set_size = len(train_set_full) - train_set_size
+    # trainset, testset = random_split(train_set_full, [train_set_size, valid_set_size])
 
     dataloader_kwargs: dict[str, Any] = dict(num_workers=0, pin_memory=False, collate_fn=collate_gastro_batch) #, prefetch_factor=1, persistent_workers=True)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.b, shuffle=True, **dataloader_kwargs)

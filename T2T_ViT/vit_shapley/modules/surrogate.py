@@ -12,6 +12,7 @@ from transformers import get_cosine_schedule_with_warmup
 
 from utils import load_transferred_model
 from datasets.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks_to_batch
+from datasets.gastro import Gastro_Datamodule
 
 
 class Surrogate(pl.LightningModule):
@@ -32,6 +33,7 @@ class Surrogate(pl.LightningModule):
     def __init__(
         self,
         output_dim: int,
+        dataset: str,
         backbone_name: Literal["vit", "t2t_vit", "swin"],
         learning_rate: Optional[float],
         weight_decay: Optional[float],
@@ -47,7 +49,7 @@ class Surrogate(pl.LightningModule):
         self.target_model = target_model
 
         # Backbone initialization
-        self.backbone = load_transferred_model(backbone_name)
+        self.backbone = load_transferred_model(backbone_name, dataset, num_classes=output_dim, device="cuda")
 
         # Nullify classification head built in the backbone module and rebuild.
         if backbone_name == 't2t_vit':
@@ -81,10 +83,16 @@ class Surrogate(pl.LightningModule):
         """Remove 'target_model' from the state_dict (the stuff saved in checkpoints)."""
         # We need to be compatible with the extended API where a 'destination' dict may be given,
         # and we need to update it (we can't make a copy).
-        destination = super().state_dict(*args, **kwargs).items()
-        for k, v in destination:
+        destination = super().state_dict(*args, **kwargs) #.items()
+        layers_to_remove = []
+
+        for k in destination:
             if k.startswith("target_model."):
-                del destination[k]
+                # del destination[k]
+                layers_to_remove.append(k)
+        
+        for key in layers_to_remove:
+            del destination[key]
         return destination
 
     @staticmethod
@@ -108,7 +116,7 @@ class Surrogate(pl.LightningModule):
         # logits = self(images, masks)  # ['logits']
         images_masked, masks, labels = apply_masks_to_batch(images, masks, labels)
 
-        logits = self(images_masked)  # ['logits']
+        logits = self(images_masked.float())  # ['logits']
         self.target_model.eval()
         with torch.no_grad():
             if self.backbone_name == 't2t_vit':
@@ -118,6 +126,9 @@ class Surrogate(pl.LightningModule):
 
         loss = self._surrogate_loss(logits=logits, logits_target=logits_target)
         self.log("train/loss", loss, prog_bar=True)
+        print(f'logits.argmax(dim=1) dtype is {type(logits.argmax(dim=1))}')
+        print(f'labels type is {type(labels)}')
+        self.log("train/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
         self.log("train/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
         return loss
 
@@ -126,7 +137,7 @@ class Surrogate(pl.LightningModule):
         images, labels, masks = batch["images"], batch["labels"], batch["masks"]
         images_masked, masks, labels = apply_masks_to_batch(images, masks, labels)
 
-        logits = self(images_masked)
+        logits = self(images_masked.float())
         logits_unmasked = self(images)
         if self.backbone_name == 't2t_vit':
             logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)
@@ -142,7 +153,7 @@ class Surrogate(pl.LightningModule):
         images, labels, masks = batch["images"], batch["labels"], batch["masks"]
         images_masked, masks, labels = apply_masks_to_batch(images, masks, labels)
 
-        logits = self(images_masked)
+        logits = self(images_masked.float())
         logits_unmasked = self(images)
         if self.backbone_name == 't2t_vit':
             logits_target = self.target_model(images.to(self.target_model.device)).to(self.device)
@@ -184,15 +195,21 @@ def main() -> None:
     parser.add_argument("--backbone_name", required=True, type=str, help="name of backbone")
     parser.add_argument("--lr", required=False, default=1e-5, type=float, help="learning rate")
     parser.add_argument("--wd", required=False, default=0.0, type=float, help="weight decay")
+    parser.add_argument("--dataset", required=True, default="gastro", type=str, help="dataset to choose")
     parser.add_argument("--b", required=False, default=128, type=int, help="batch size")
     parser.add_argument("--num_workers", required=False, default=0, type=int, help="number of dataloader workers")
     parser.add_argument("--target_model_name", required=True, type=str, help="name of target model")
     args = parser.parse_args()
 
-    target_model = load_transferred_model(args.target_model_name, device="cuda")
+    num_classes = 2 if args.dataset == "gastro" else 10
+    target_model = load_transferred_model(args.target_model_name, 
+                                          args.dataset, 
+                                          num_classes=num_classes,
+                                          device="cuda")
 
     surrogate = Surrogate(
-        output_dim=10,
+        output_dim=num_classes,
+        dataset=args.dataset,
         backbone_name=args.backbone_name,
         target_model=target_model,
         learning_rate=args.lr,
@@ -202,13 +219,23 @@ def main() -> None:
         num_players=args.num_players,
     )
 
-    datamodule = CIFAR_10_Datamodule(
-        num_players=args.num_players,
-        num_mask_samples=1,
-        paired_mask_samples=False,
-        batch_size=args.b,
-        num_workers=args.num_workers,
-    )
+
+    if args.dataset == "cifar_10":
+        datamodule = CIFAR_10_Datamodule(
+            num_players=args.num_players,
+            num_mask_samples=1,
+            paired_mask_samples=False,
+            batch_size=args.b,
+            num_workers=args.num_workers,
+        )
+    if args.dataset == "gastro":
+        datamodule = Gastro_Datamodule(
+            num_players=args.num_players,
+            num_mask_samples=1,
+            paired_mask_samples=False,
+            batch_size=args.b,
+            num_workers=args.num_workers,
+        )
 
     log_and_checkpoint_dir = (
         PROJECT_ROOT
@@ -219,8 +246,9 @@ def main() -> None:
     log_and_checkpoint_dir.mkdir(parents=True, exist_ok=True)
     print(f"{log_and_checkpoint_dir=}")
     trainer = pl.Trainer(
-        max_epochs=20,
+        max_epochs=100,
         default_root_dir=log_and_checkpoint_dir,
+        log_every_n_steps=15,
         callbacks=RichProgressBar(leave=True)
     )  # logger=False)
     trainer.fit(surrogate, datamodule)

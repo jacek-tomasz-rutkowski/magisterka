@@ -56,25 +56,36 @@ def load_transferred_model(
     ...
 
 
-def load_transferred_model(name, path=None, device="cpu", num_classes=10):
+def load_transferred_model(name, dataset, num_classes, path=None, device="cpu"):
     """
     Load a model transferred to CIFAR10.
     """
     model: nn.Module  # T2T_ViT | ViTForImageClassification | SwinForImageClassification
-    transferred_dir = PROJECT_ROOT / "saved_models/transferred/cifar10"
+    if dataset == "cifar_10":
+        transferred_dir = PROJECT_ROOT / "saved_models/transferred/cifar10"
+        t2t_vit_path = "ckpt_0.01_0.0005_97.5.pth"
+        vit_path = "vit_epoch-47_acc-98.2.pth"
+        swin_path = "swin_epoch-37_acc-97.34.pth"
+    if dataset == "gastro":
+        transferred_dir = PROJECT_ROOT / "saved_models/transferred/gastro"
+        t2t_vit_path = "epoch-13_acc-90.0.pth"
+        # TODO: vit_path and swin_path 
+
     if name == "t2t_vit":
-        path = path or transferred_dir / "ckpt_0.01_0.0005_97.5.pth"
+        path = path or transferred_dir / t2t_vit_path
         model = cast(T2T_ViT, t2t_vit_14(num_classes=num_classes))
     elif name == "vit":
-        path = path or transferred_dir / "vit_epoch-47_acc-98.2.pth"
+        path = path or transferred_dir / vit_path
         # path = PROJECT_ROOT / "saved_models/downloaded/cifar10/cifar10_t2t-vit_14_98.3.pth"
         model = ViTForImageClassification(ViTConfig(num_labels=num_classes))
     elif name == "swin":
-        path = path or transferred_dir / "swin_epoch-37_acc-97.34.pth"
+        path = path or transferred_dir / swin_path
         model = SwinForImageClassification(SwinConfig(num_labels=num_classes))
     else:
         raise ValueError(f"Unexpected backbone name: {name}")
-    load_checkpoint(path, model, device=device)
+    # we need to ignore head.weight and head.bias
+    load_checkpoint(path, model, ignore_keys=["head.weight", "head.bias"], device=device)
+    # load_checkpoint(path, model, device=device)
     return model
 
 

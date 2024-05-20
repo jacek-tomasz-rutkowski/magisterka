@@ -42,12 +42,30 @@ class GastroDataitem(NamedTuple):
     segmentation: tv_tensors.Mask  # shape CHW, C=1, uint8 (0 - background, 1 - polyp).
     bboxes: tv_tensors.BoundingBoxes  # shape N4, int64, format XYXY.
 
+class GastroMasksDataitem(NamedTuple):
+    """Item from the GastroDataset."""
+
+    image: tv_tensors.Image  # shape CHW (RGB, before transform uint8, after float32).
+    label: int  # 0 - normal, 1 - polyp.
+    masks: torch.Tensor # shape n_masks_per_image, n_players
+    segmentation: tv_tensors.Mask  # shape CHW, C=1, uint8 (0 - background, 1 - polyp).
+    bboxes: tv_tensors.BoundingBoxes  # shape N4, int64, format XYXY.
+
 
 class GastroBatch(NamedTuple):
     """Batch of GastroDataitems (as collated by collate_gastro_batch)."""
 
     image: torch.Tensor  # shape BCHW, RGB, normalized float32.
     label: torch.Tensor  # shape B, int64
+    segmentation: torch.Tensor  # shape BCHW, C=1, uint8.
+    bboxes: list[torch.Tensor]  # list of tensors of shape N4, int64, format XYXY.
+
+class GastroBatchMasks(NamedTuple):
+    """Batch of GastroDataitems (as collated by collate_gastro_batch)."""
+
+    image: torch.Tensor  # shape BCHW, RGB, normalized float32.
+    label: torch.Tensor  # shape B, int64
+    masks: torch.Tensor # shape (B, n_masks_per_image, n_players) or (B, n_players)
     segmentation: torch.Tensor  # shape BCHW, C=1, uint8.
     bboxes: list[torch.Tensor]  # list of tensors of shape N4, int64, format XYXY.
 
@@ -68,9 +86,14 @@ class GastroDataset(Dataset):
     label_names = ["normal", "polyp"]
     name_to_label = {name: label for label, name in enumerate(label_names)}
 
-    def __init__(self, root: str | Path, transform: v2.Transform | None = None) -> None:
+    def __init__(self, train: bool, root: str | Path, transform: v2.Transform | None = None) -> None:
         self.root = Path(root).expanduser()
-        self.transform = transform or self.default_transform()
+        self.train = train
+        if train:
+            self.transform = transform or self.default_train_transform()
+        else:
+            self.transform = transform or self.default_transform()
+        # self.transform = transform self.default_train_transform()
 
         # Maps image names (without .jpg) to {height, width, bbox: [{label, xmin, ymin, xmax, ymax}, ...]}.
         with open(self.root / "gastro-hyper-kvasir/segmented-images/bounding-boxes.json") as f:
@@ -79,7 +102,12 @@ class GastroDataset(Dataset):
         self.dataitems = list[_PreGastroDataitem]()
 
         # Add images with polyps.
-        for p in sorted((self.root / "gastro-hyper-kvasir/segmented-images/images").glob("*.jpg")):
+        all_polyps = sorted((self.root / "gastro-hyper-kvasir/segmented-images/images").glob("*.jpg"))
+        if train:
+            polyps = all_polyps[:int(0.9*len(all_polyps))]
+        else:
+            polyps = all_polyps[int(0.9*len(all_polyps)):]
+        for p in polyps:
             segmentation_p = self.root / "gastro-hyper-kvasir/segmented-images/masks" / p.name
             assert segmentation_p.exists(), f"Mask not found for {p.name}"
             self.dataitems.append(
@@ -93,7 +121,12 @@ class GastroDataset(Dataset):
 
         # Add images without polyps.
         # changed path from images-images/images
-        for p in sorted((self.root / "gastro-hyper-kvasir/unlabeled-images-similar/images").glob("*.jpg")):
+        all_no_polyps = sorted((self.root / "gastro-hyper-kvasir/unlabeled-images-similar/images").glob("*.jpg"))
+        if train:
+            no_polyps = all_no_polyps[:int(0.9*len(all_no_polyps))]
+        else:
+            no_polyps = all_no_polyps[int(0.9*len(all_no_polyps)):]
+        for p in no_polyps:
             self.dataitems.append(
                 _PreGastroDataitem(
                     image_path=p, label=self.name_to_label["normal"], segmentation_path=None, bboxes=None
@@ -102,14 +135,18 @@ class GastroDataset(Dataset):
 
     def __getitem__(self, index: int) -> GastroDataitem:
         d = self.dataitems[index]
+        
         image = self.transform(tv_tensors.Image(torchvision.io.read_image(str(d.image_path), mode=ImageReadMode.RGB)))
-        H, W = image.shape[-2], image.shape[-1]
+        
         segmentation = (
-            self.transform(tv_tensors.Mask(torchvision.io.read_image(str(d.segmentation_path), mode=ImageReadMode.GRAY)))
-            if d.segmentation_path
-            # it was image, change to image[0] to fit shapes
-            else torch.zeros_like(image[:1])
+                self.transform(tv_tensors.Mask(torchvision.io.read_image(str(d.segmentation_path), mode=ImageReadMode.GRAY)))
+                if d.segmentation_path
+                # it was image, change to image[0] to fit shapes
+                else torch.zeros_like(image[:1])
         )
+                                      
+        H, W = image.shape[-2], image.shape[-1]
+
         bboxes = self._get_empty_bboxes_tensor(H, W) if d.bboxes is None else d.bboxes
         dataitem = GastroDataitem(image=image, label=d.label, segmentation=segmentation, bboxes=bboxes)
 
@@ -241,6 +278,16 @@ def collate_gastro_batch(batch: list[GastroDataitem]) -> GastroBatch:
     # collate_fn = partial(collate, collate_fn_map=default_collate_fn_map | {tv_tensors.BoundingBoxes: collate_bboxes})
     # ```
 
+
+def collate_gastro_masks_batch(batch: list[GastroMasksDataitem]):
+    """Function for collating a list of dataitems into a batch, for use in dataloaders as collate_fn."""
+
+    return {"images": default_collate([d["images"].float() for d in batch]),
+            "labels": default_collate([d["labels"] for d in batch]),
+            "masks": default_collate([d["masks"] for d in batch]),
+            "segmentation": default_collate([d["segmentation"].float() for d in batch]),
+            "bboxes": [d["bboxes"].float() for d in batch]}
+
 class GastroDatasetWrapper(Dataset):
     """
     Wrapper dataset for polyp detection in endoscopic images.
@@ -250,15 +297,14 @@ class GastroDatasetWrapper(Dataset):
                 num_players: int,
                 num_mask_samples: int,
                 paired_mask_samples: bool,
-                root_path: Path,
                 mode: str = "uniform",
                 transform: v2.Transform | None = None,) -> None:
         
-        self.wrapped_dataset = GastroDataset(root_path, transform)
+        self.wrapped_dataset = GastroDataset(root, transform)
         self.num_players = num_players
         self.num_mask_samples = num_mask_samples
         self.paired_mask_samples = paired_mask_samples
-        self.root_path = root_path
+        self.root = root
         self.mode = mode
   
 
@@ -271,9 +317,15 @@ class GastroDatasetWrapper(Dataset):
             paired_mask_samples=self.paired_mask_samples,
             mode=self.mode
         )
+        # dataitem = GastroMasksDataitem(image=image, label=label, masks=masks, 
+        #                                segmentation=segmentation, bboxes=bboxes)
         
-        return {"images": image, "labels": label, "masks": masks,
+        return {"images": image, "labels": label, "masks": masks, 
                 "segmentation": segmentation, "bboxes": bboxes}
+        
+    
+    def __len__(self) -> int:
+        return len(self.wrapped_dataset)
 
 
 class Gastro_Datamodule(pl.LightningDataModule):
@@ -295,10 +347,10 @@ class Gastro_Datamodule(pl.LightningDataModule):
         self.num_mask_samples = num_mask_samples
         self.paired_mask_samples = paired_mask_samples
         self._dataset_kwargs: dict[str, Any] = dict(
+            root=PROJECT_ROOT / "data",
             num_players=num_players,
             num_mask_samples=num_mask_samples,
             paired_mask_samples=paired_mask_samples,
-            root_path=PROJECT_ROOT / "data",
         )
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -306,8 +358,8 @@ class Gastro_Datamodule(pl.LightningDataModule):
         self.val_mode = val_mode
         self.test_mode = test_mode
         self._dataloader_kwargs: dict[str, Any] = dict(batch_size=batch_size, 
-                                                       num_workers=num_workers, 
-                                                       collate_fn=collate_gastro_batch)
+                                                       num_workers=num_workers,
+                                                       collate_fn=collate_gastro_masks_batch)
 
 
     def setup(self, stage: Optional[str] = None) -> None:

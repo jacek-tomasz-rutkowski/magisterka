@@ -9,7 +9,7 @@ import PIL.Image
 import PIL.ImageDraw
 from torch.utils.data import random_split, Dataset, DataLoader
 
-import scipy
+
 PROJECT_ROOT = Path(__file__).parent.parent  # Path to the T2T_ViT/ directory.
 
 
