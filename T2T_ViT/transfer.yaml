@@ -1,6 +1,5 @@
 model:
-  backbone: vit_small_patch16_224.augreg_in1k  # swin_tiny_patch4_window7_224.ms_in1k
-  num_classes: 10
+  backbone: swin_tiny_patch4_window7_224.ms_in1k  # vit_small_patch16_224.augreg_in1k
   optimizer_kwargs:
     opt: sgd
     lr: 0.001
@@ -13,7 +12,7 @@ model:
     min_lr: 1e-5
 
 data:
-  class_path: CIFAR10DataModule  # GastroDataModule
+  class_path:  GastroDataModule  # CIFAR10DataModule
   init_args:
     dataloader_kwargs:
       batch_size: 64
@@ -21,17 +20,8 @@ data:
       pin_memory: true
 
 trainer:
-  logger: true
-  max_epochs: 1000
+  max_epochs: 350
   accumulate_grad_batches: 1
-  callbacks:
-    - class_path: RichProgressBar
-      init_args:
-        leave: true
-        console_kwargs:
-          force_terminal: true
-          force_interactive: true
-          width: 250
 
 seed_everything: 1
 

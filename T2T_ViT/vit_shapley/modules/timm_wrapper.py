@@ -1,23 +1,29 @@
+import os
+import pprint
+import warnings
 from pathlib import Path
-from typing import cast, Any, Protocol
+from typing import Any, Protocol, cast
 
 import lightning as L
-import torch
-import torch.nn
-import torch.utils.data
-import torchvision.datasets
 import timm
 import timm.optim
 import timm.scheduler
 import timm.scheduler.scheduler
-from lightning.pytorch.cli import LightningCLI
-from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig, LRSchedulerConfigType
+import torch
+import torch.nn
+import torch.utils.data
+import torchvision.datasets
+from lightning.pytorch.callbacks import ModelCheckpoint, RichProgressBar
+from lightning.pytorch.cli import LightningCLI, SaveConfigCallback
+from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
+from lightning.pytorch.loggers import Logger as LightningLogger
+from lightning.pytorch.utilities.types import LRSchedulerConfigType, OptimizerLRSchedulerConfig
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from torch import Tensor
 from torchvision.transforms import v2
 
 from datasets.gastro import GastroBatch, GastroDataset, collate_gastro_batch
-from datasets.transforms import default_transform, ImageClassificationDatasetWrapper
+from datasets.transforms import ImageClassificationDatasetWrapper, default_transform
 from utils import PROJECT_ROOT
 
 
@@ -32,6 +38,7 @@ class _TimmModelProtocol(Protocol):
 
 class TimmModel(_TimmModelProtocol, torch.nn.Module):
     """Base type for timm models."""
+
     pass
     # For example:
     # - timm.models.vision_transformer.VisionTransformer
@@ -102,20 +109,15 @@ class TimmWrapper(L.LightningModule):
         head_parameter_ids = set(id(p) for p in head_parameters)
         backbone_parameters = [p for p in self.model.parameters() if id(p) not in head_parameter_ids]
 
-        optimizer = timm.optim.create_optimizer_v2([
-            {"params": backbone_parameters, "lr": lr},
-            {"params": head_parameters, "lr": lr_head},
-        ], **optimizer_kwargs)
+        optimizer = timm.optim.create_optimizer_v2(
+            [
+                {"params": backbone_parameters, "lr": lr},
+                {"params": head_parameters, "lr": lr_head},
+            ],
+            **optimizer_kwargs,
+        )
 
         scheduler, num_epochs = timm.scheduler.create_scheduler_v2(optimizer, **self.hparams["scheduler_kwargs"])
-
-        # optimizer = torch.optim.AdamW(self.parameters(), lr=0.001)
-        # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
-        # optimizer = torch.optim.SGD(self.parameters(), lr=0.01, momentum=0.9)
-        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        #     optimizer, mode='min', factor=0.05, patience=2, threshold=0.0001,
-        #     threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-08, verbose=True
-        # )
 
         return OptimizerLRSchedulerConfig(
             optimizer=optimizer, lr_scheduler=LRSchedulerConfigType(scheduler=scheduler, monitor="val/loss")
@@ -160,6 +162,8 @@ class BaseDataModule(L.LightningDataModule):
 
 
 class GastroDataModule(BaseDataModule):
+    num_classes: int = 2
+
     def __init__(self, root: Path = PROJECT_ROOT / "data", *, dataloader_kwargs: dict[str, Any]):
         """
         Args:
@@ -188,6 +192,8 @@ class GastroDataModule(BaseDataModule):
 
 
 class CIFAR10DataModule(BaseDataModule):
+    num_classes: int = 10
+
     def __init__(self, root: Path = PROJECT_ROOT / "data", *, dataloader_kwargs: dict[str, Any]):
         """
         Args:
@@ -208,26 +214,18 @@ class CIFAR10DataModule(BaseDataModule):
         target_image_size = 224
         if stage == "fit":
             self.train_dataset = ImageClassificationDatasetWrapper(
-                torchvision.datasets.CIFAR10(
-                    root=self.root,
-                    train=True,
-                    download=False
-                ),
-                transform=self.default_train_transform(target_image_size)
+                torchvision.datasets.CIFAR10(root=self.root, train=True, download=False),
+                transform=self.default_train_transform(target_image_size),
             )
         if stage == "fit" or stage == "validate":
             self.val_dataset = ImageClassificationDatasetWrapper(
-                torchvision.datasets.CIFAR10(
-                    root=self.root, train=False, download=False
-                ),
-                transform=self.default_transform(target_image_size)
+                torchvision.datasets.CIFAR10(root=self.root, train=False, download=False),
+                transform=self.default_transform(target_image_size),
             )
         if stage == "test":
             self.test_dataset = ImageClassificationDatasetWrapper(
-                torchvision.datasets.CIFAR10(
-                    root=self.root, train=False, download=False
-                ),
-                transform=self.default_transform(target_image_size)
+                torchvision.datasets.CIFAR10(root=self.root, train=False, download=False),
+                transform=self.default_transform(target_image_size),
             )
 
     @staticmethod
@@ -248,36 +246,78 @@ class CIFAR10DataModule(BaseDataModule):
         )
 
 
+class LoggerSaveConfigCallback(SaveConfigCallback):
+    _called = False
+
+    def save_config(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
+        if isinstance(trainer.logger, LightningLogger):
+            main_config = {
+                "datamodule": self.config.data.class_path.split(".")[-1],
+                "backbone": self.config.model.backbone.split(".")[0],
+                "lr": self.config.model.optimizer_kwargs["lr"],
+                "lr_head": self.config.model.optimizer_kwargs.get("lr_head"),
+                "batch": self.config.data.init_args.dataloader_kwargs["batch_size"],
+                "acc": self.config.trainer.accumulate_grad_batches,
+            }
+            if not self._called:
+                pprint.pp(main_config, indent=8, width=200)
+                self._called = True
+            full_config = self.config
+            full_config.pop("config.trainer.logger")
+            full_config.pop("config.trainer.callbacks")
+            trainer.logger.log_hyperparams({**main_config, "config": full_config})
+
+
+class MyLightningCLI(LightningCLI):
+    def add_arguments_to_parser(self, parser):
+        parser.link_arguments("data.num_classes", "model.num_classes", apply_on="instantiate")
+
+
 def main() -> None:
-    # TODO set HF_HOME and torch.hub.set_dir()
-    # TODO sometimes mean-std is different.
-
-    # Usage:
-    #   CUDA_VISIBLE_DEVICES=7 python -m vit_shapley.modules.timm_wrapper fit --config timm_config.yaml
-    # Or:
-    #   --config default.yaml --config overwrites.yaml
-    #   --trainer trainer.yaml --model model.yaml --data data.yaml
-    # python main.py fit --model DemoModel --print_config
-
     torch.set_float32_matmul_precision("medium")
-    LightningCLI(
+
+    # Ignore a few spurious warnings from Lightning.
+    warnings.filterwarnings("ignore", message="The `srun` command is available on your system")
+    warnings.filterwarnings("ignore", message="Experiment logs directory .* exists")
+    warnings.filterwarnings("ignore", message="The number of training batches .* is smaller than the logging interval")
+    warnings.filterwarnings("ignore", message="(?s).*Unable to serialize instance.*logger")
+
+    # Choose where to save logs and checkpoints.
+    checkpoints_dir = PROJECT_ROOT / "checkpoints"
+    experiment_name = "transfer"
+    version = os.environ.get("SLURM_JOB_ID", "")
+    if not version:
+        # If not running with slurm, manually set the version to the next available number, prefixed with "n".
+        versions = [
+            int(p.name[1:]) for p in (checkpoints_dir / experiment_name).iterdir() if p.name.startswith("n")
+        ]
+        version = f"n{max(versions, default=0) + 1}"
+    print(str(checkpoints_dir / experiment_name / version))
+
+    MyLightningCLI(
         TimmWrapper,
         trainer_defaults=dict(
-            default_root_dir=PROJECT_ROOT / "checkpoints" / "transfer",
+            default_root_dir=checkpoints_dir / experiment_name,
+            logger=[
+                TensorBoardLogger(checkpoints_dir, name=experiment_name, version=version, default_hp_metric=False),
+                CSVLogger(checkpoints_dir, name=experiment_name, version=version),
+            ],
+            callbacks=[
+                ModelCheckpoint(
+                    filename="epoch={epoch:0>3}_val-acc={val/accuracy:.3f}",
+                    auto_insert_metric_name=False,
+                    monitor="val/loss",
+                    save_top_k=1,
+                    verbose=False,
+                ),
+                RichProgressBar(
+                    leave=True,
+                    console_kwargs=dict(force_terminal=True, force_interactive=True, width=250),
+                ),
+            ],
         ),
+        save_config_callback=LoggerSaveConfigCallback,
     )
-    #  parser_kwargs={"default_config_files": ["my_cli_defaults.yaml"]})
-
-    # For arguments that appear in many places, use
-    # https://lightning.ai/docs/pytorch/stable/cli/lightning_cli_expert.html#cli-link-arguments
-    # Linking can also create dependencies like "instantiate datamodule first to get number of classes,
-    # or link stuff as functions of multiple other settings.
-    # For variable interpolation you would need to enable omegaconf.
-
-    # LightningCLI has before_fit and after_fit hooks, for example. It's argparse can also be customized.
-    # You can also customize configs/defaults for the fit subcommand and other separately.
-
-    # Use JSONARGPARSE_DEBUG=true to see stacktraces during argparsing.
 
 
 if __name__ == "__main__":
