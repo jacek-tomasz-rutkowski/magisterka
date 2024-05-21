@@ -299,7 +299,7 @@ def main() -> None:
         trainer_defaults=dict(
             default_root_dir=checkpoints_dir / experiment_name,
             logger=[
-                TensorBoardLogger(checkpoints_dir, name=experiment_name, version=version, default_hp_metric=False),
+                TensorBoardLogger(checkpoints_dir, name=experiment_name, version=version),
                 CSVLogger(checkpoints_dir, name=experiment_name, version=version),
             ],
             callbacks=[
