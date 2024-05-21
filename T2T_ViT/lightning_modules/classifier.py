@@ -1,6 +1,3 @@
-import os
-import pprint
-import warnings
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -13,10 +10,6 @@ import torch
 import torch.nn
 import torch.utils.data
 import torchvision.datasets
-from lightning.pytorch.callbacks import ModelCheckpoint, RichProgressBar
-from lightning.pytorch.cli import LightningCLI, SaveConfigCallback
-from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
-from lightning.pytorch.loggers import Logger as LightningLogger
 from lightning.pytorch.utilities.types import LRSchedulerConfigType, OptimizerLRSchedulerConfig
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from torch import Tensor
@@ -25,6 +18,7 @@ from torchvision.transforms import v2
 from datasets.gastro import GastroBatch, GastroDataset, collate_gastro_batch
 from datasets.transforms import ImageClassificationDatasetWrapper, default_transform
 from utils import PROJECT_ROOT
+from .cli import lightning_main
 
 
 class _TimmModelProtocol(Protocol):
@@ -45,7 +39,7 @@ class TimmModel(_TimmModelProtocol, torch.nn.Module):
     # - timm.models.swin_transformer.SwinTransformer
 
 
-class TimmWrapper(L.LightningModule):
+class Classifier(L.LightningModule):
     def __init__(
         self,
         backbone: str,
@@ -246,79 +240,23 @@ class CIFAR10DataModule(BaseDataModule):
         )
 
 
-class LoggerSaveConfigCallback(SaveConfigCallback):
-    _called = False
-
-    def save_config(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
-        if isinstance(trainer.logger, LightningLogger):
-            main_config = {
-                "datamodule": self.config.data.class_path.split(".")[-1],
-                "backbone": self.config.model.backbone.split(".")[0],
-                "lr": self.config.model.optimizer_kwargs["lr"],
-                "lr_head": self.config.model.optimizer_kwargs.get("lr_head"),
-                "batch": self.config.data.init_args.dataloader_kwargs["batch_size"],
-                "acc": self.config.trainer.accumulate_grad_batches,
-            }
-            if not self._called:
-                pprint.pp(main_config, indent=8, width=200)
-                self._called = True
-            full_config = self.config
-            full_config.pop("config.trainer.logger")
-            full_config.pop("config.trainer.callbacks")
-            trainer.logger.log_hyperparams({**main_config, "config": full_config})
-
-
-class MyLightningCLI(LightningCLI):
-    def add_arguments_to_parser(self, parser):
-        parser.link_arguments("data.num_classes", "model.num_classes", apply_on="instantiate")
-
-
-def main() -> None:
-    torch.set_float32_matmul_precision("medium")
-
-    # Ignore a few spurious warnings from Lightning.
-    warnings.filterwarnings("ignore", message="The `srun` command is available on your system")
-    warnings.filterwarnings("ignore", message="Experiment logs directory .* exists")
-    warnings.filterwarnings("ignore", message="The number of training batches .* is smaller than the logging interval")
-    warnings.filterwarnings("ignore", message="(?s).*Unable to serialize instance.*logger")
-
-    # Choose where to save logs and checkpoints.
-    checkpoints_dir = PROJECT_ROOT / "checkpoints"
-    experiment_name = "transfer"
-    version = os.environ.get("SLURM_JOB_ID", "")
-    if not version:
-        # If not running with slurm, manually set the version to the next available number, prefixed with "n".
-        versions = [
-            int(p.name[1:]) for p in (checkpoints_dir / experiment_name).iterdir() if p.name.startswith("n")
-        ]
-        version = f"n{max(versions, default=0) + 1}"
-    print(str(checkpoints_dir / experiment_name / version))
-
-    MyLightningCLI(
-        TimmWrapper,
-        trainer_defaults=dict(
-            default_root_dir=checkpoints_dir / experiment_name,
-            logger=[
-                TensorBoardLogger(checkpoints_dir, name=experiment_name, version=version),
-                CSVLogger(checkpoints_dir, name=experiment_name, version=version),
-            ],
-            callbacks=[
-                ModelCheckpoint(
-                    filename="epoch={epoch:0>3}_val-acc={val/accuracy:.3f}",
-                    auto_insert_metric_name=False,
-                    monitor="val/loss",
-                    save_top_k=1,
-                    verbose=False,
-                ),
-                RichProgressBar(
-                    leave=True,
-                    console_kwargs=dict(force_terminal=True, force_interactive=True, width=250),
-                ),
-            ],
-        ),
-        save_config_callback=LoggerSaveConfigCallback,
-    )
-
-
 if __name__ == "__main__":
-    main()
+    lightning_main(
+        Classifier,
+        # (CIFAR10DataModule, GastroDataModule),
+        experiment_name="classifier",
+        monitor="val/loss",
+        parser_callback=lambda parser: parser.link_arguments(
+            "data.num_classes", "model.num_classes", apply_on="instantiate"
+        ),
+        main_config_callback=lambda config: {
+            "datamodule": config.data.class_path.split(".")[-1],
+            "backbone": config.model.backbone.split(".")[0],
+            "lr": config.model.optimizer_kwargs["lr"],
+            "lr_head": config.model.optimizer_kwargs.get("lr_head"),
+            "batch": config.data.init_args.dataloader_kwargs["batch_size"],
+            "acc": config.trainer.accumulate_grad_batches,
+        },
+        checkpoint_filename_pattern="epoch={epoch:0>3}_val-acc={val/accuracy:.3f}",
+        model_summary_depth=2,
+    )
