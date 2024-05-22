@@ -60,7 +60,7 @@ class Surrogate(pl.LightningModule):
         # else:
             # backbone_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
             # load_checkpoint(backbone_path, self.backbone, ignore_keys=["head.weight", "head.bias"])  
-        self.backbone = load_transferred_model(backbone_name, dataset, num_classes=output_dim, device="cuda")
+        self.backbone = load_transferred_model(backbone_name, dataset, device="cuda")
 
         # Nullify classification head built in the backbone module and rebuild.
         if backbone_name == 't2t_vit':
@@ -228,8 +228,7 @@ def main() -> None:
     # target_model = models.t2t_vit.t2t_vit_14(num_classes=num_classes)
     
     target_model = load_transferred_model(args.target_model_name, 
-                                          args.dataset, 
-                                          num_classes=num_classes,
+                                          args.dataset,
                                           device="cuda")
 
     surrogate = Surrogate(

@@ -11,6 +11,7 @@ from pytorch_lightning.callbacks import RichProgressBar
 
 from utils import is_true_string, load_transferred_model
 from datasets.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks
+from datasets.gastro import Gastro_Datamodule
 from vit_shapley.modules import explainer_utils
 from vit_shapley.modules.surrogate import Surrogate
 
@@ -19,6 +20,7 @@ class Explainer(pl.LightningModule):
     """
     `pytorch_lightning` module for explainer.
         output_dim: the dimension of output,
+        dataset: gastro or cifar_10,
 
         explainer_head_num_attention_blocks:
         explainer_head_mlp_layer_ratio:
@@ -39,6 +41,7 @@ class Explainer(pl.LightningModule):
     def __init__(
         self,
         output_dim: int,
+        dataset: str,
         backbone_name: Literal["t2t_vit", "swin", "vit"],
         explainer_head_num_attention_blocks: int,
         explainer_head_mlp_layer_ratio: int,
@@ -62,6 +65,7 @@ class Explainer(pl.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["surrogate"])
+        self.dataset = dataset
         self.backbone_name = backbone_name
         surrogate_num_players = getattr(surrogate, 'num_players', None)
         assert num_players is not None, f"Please specify num_players to Explainer; {surrogate_num_players=}"
@@ -79,7 +83,7 @@ class Explainer(pl.LightningModule):
             self.backbone = copy.deepcopy(self.surrogate.backbone)
             head_in_features = self.surrogate.head.in_features
         else:
-            self.backbone = load_transferred_model(backbone_name)
+            self.backbone = load_transferred_model(backbone_name, dataset=self.dataset)
 
         # Nullify classification head built in the backbone module and rebuild.
         if backbone_name == 't2t_vit':
@@ -198,7 +202,7 @@ class Explainer(pl.LightningModule):
             images = images[0:1].to(self.surrogate.device)  # Limit batch to one image.
             masks = torch.zeros(1, 1, self.num_players, device=self.surrogate.device)
             images_masked = apply_masks(images, masks)  # Mask-out everything.
-            logits = self.surrogate(images_masked)  # (1, channel, height, weight) -> (1, num_classes)
+            logits = self.surrogate(images_masked.float())  # (1, channel, height, weight) -> (1, num_classes)
             if self.hparams["use_softmax"]:
                 self.__null = torch.nn.Softmax(dim=1)(logits).to(self.device)  # (1, num_classes)
             else:
@@ -217,7 +221,7 @@ class Explainer(pl.LightningModule):
             images = images.to(self.surrogate.device)  # (batch, channel, height, weight)
             masks = torch.ones(images.shape[0], 1, self.num_players, device=self.surrogate.device)
             images_masked = apply_masks(images, masks)  # (batch, channel, height, weight)
-            logits = self.surrogate(images_masked)  # (batch, num_classes)
+            logits = self.surrogate(images_masked.float())  # (batch, num_classes)
             grand: torch.Tensor
             if self.hparams["use_softmax"]:
                 grand = torch.nn.Softmax(dim=1)(logits).to(self.device)  # (batch, num_classes)
@@ -242,7 +246,7 @@ class Explainer(pl.LightningModule):
             ), f"Explainer was inited with {self.num_players=} but got {num_players=} from dataloader."
             images, masks = images.to(self.surrogate.device), masks.to(self.surrogate.device)
             images_masked = apply_masks(images, masks)  # (B * num_mask_samples, C, H, W)
-            logits = self.surrogate(images_masked)  # (B * num_mask_samples, num_classes)
+            logits = self.surrogate(images_masked.float())  # (B * num_mask_samples, num_classes)
             surrogate_values: torch.Tensor
             if self.hparams["use_softmax"]:
                 surrogate_values = torch.nn.Softmax(dim=1)(logits)  # (B * num_mask_samples, num_classes)
@@ -371,7 +375,10 @@ class Explainer(pl.LightningModule):
         # Images have shape (batch, channel, height, weight).
         # Masks have shape: (batch, num_masks_per_image, num_players).
         # Labels have shape: (batch,).
-        images, masks, labels = batch["images"], batch["masks"], batch["labels"]
+        if self.dataset == "gastro":
+            images, labels, masks = batch.image, batch.label, batch.masks
+        else:
+            images, labels, masks = batch["images"], batch["labels"], batch["masks"]
 
         # Evaluate surrogate on masked, unmasked and fully masked inputs.
         surrogate_values = self.surrogate_multiple_masks(images, masks)  # (batch, num_masks_per_image, num_classes)
@@ -397,7 +404,10 @@ class Explainer(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         assert self.surrogate is not None
-        images, masks, labels = batch["images"], batch["masks"], batch["labels"]
+        if self.dataset == "gastro":
+            images, labels, masks = batch.image, batch.label, batch.masks
+        else:
+            images, labels, masks = batch["images"], batch["labels"], batch["masks"]
 
         # Evaluate surrogate.
         surrogate_values = self.surrogate_multiple_masks(images, masks)
@@ -434,7 +444,10 @@ class Explainer(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         assert self.surrogate is not None
-        images, masks, labels = batch["images"], batch["masks"], batch["labels"]
+        if self.dataset == "gastro":
+            images, labels, masks = batch.image, batch.label, batch.masks
+        else:
+            images, labels, masks = batch["images"], batch["labels"], batch["masks"]
 
         # Evaluate surrogate.
         surrogate_values = self.surrogate_multiple_masks(images, masks)
@@ -475,11 +488,12 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Explainer training")
     parser.add_argument("--label", default="", type=str, help="label for checkpoints")
+    parser.add_argument("--dataset", required=True, type=str, help="dataset: gastro or cifar10")
     parser.add_argument("--num_players", required=True, type=int, help="number of players")
     parser.add_argument("--lr", default=5e-5, type=float, help="explainer learning rate")
     parser.add_argument("--wd", default=0.0, type=float, help="explainer weight decay")
     parser.add_argument("--b", default=256, type=int, help="batch size")
-    parser.add_argument("--num_workers", default=2, type=int, help="number of dataloader workers")
+    parser.add_argument("--num_workers", default=0, type=int, help="number of dataloader workers")
     parser.add_argument("--num_atts", default=0, type=int, help="number of attention blocks")
     parser.add_argument("--mlp_ratio", default=4, type=int, help="ratio for the middle layer in mlps")
     parser.add_argument("--t_lambda", default=0, type=float, help="ratio for target class in loss")
@@ -503,7 +517,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.use_surg:
-        surrogate_dir = PROJECT_ROOT / "saved_models/surrogate/cifar10"
+        surrogate_dir = PROJECT_ROOT / f"saved_models/surrogate/{args.dataset}"
         if args.target_model_name == 't2t_vit':
             surrogate_path = surrogate_dir / f"v2/player{args.num_players}/t2t_vit.ckpt"
         elif args.target_model_name == 'swin':
@@ -515,6 +529,8 @@ def main() -> None:
 
         # For older checkpoints, it's OK to set 'strict=False' and
         # ignore Surrogate's "target_model.*" being saved checkpoint but not in Surrogate for evaluation.
+        
+        # surrogate_path = PROJECT_ROOT / "saved_models/surrogate/gastro/epoch=2-step=39.ckpt"
         target_model = Surrogate.load_from_checkpoint(
             surrogate_path,
             map_location="cuda",
@@ -522,10 +538,11 @@ def main() -> None:
             # backbone_name="t2t_vit"  # Needs to be specified for very old checkpoints.
         )
     else:
-        target_model = load_transferred_model(args.target_model_name)
+        target_model = load_transferred_model(args.target_model_name, args.dataset)
 
     explainer = Explainer(
-        output_dim=10,
+        output_dim=2 if args.dataset == "gastro" else 10,
+        dataset=args.dataset,
         backbone_name=args.backbone_name,
         explainer_head_num_attention_blocks=args.num_atts,
         explainer_head_mlp_layer_ratio=args.mlp_ratio,
@@ -548,16 +565,30 @@ def main() -> None:
         use_surrogate_backbone=args.use_sb
     )
 
-    datamodule = CIFAR_10_Datamodule(
-        num_players=args.num_players,
-        num_mask_samples=2,
-        paired_mask_samples=True,
-        batch_size=args.b,
-        num_workers=args.num_workers,
-        train_mode=args.mode,
-        val_mode="uniform",
-        test_mode="uniform"
-    )
+
+    if args.dataset == "cifar10":
+        datamodule = CIFAR_10_Datamodule(
+            num_players=args.num_players,
+            num_mask_samples=2,
+            paired_mask_samples=True,
+            batch_size=args.b,
+            num_workers=args.num_workers,
+            train_mode=args.mode,
+            val_mode="uniform",
+            test_mode="uniform"
+        )
+    
+    else:
+        datamodule = Gastro_Datamodule(
+            num_players=args.num_players,
+            num_mask_samples=2,
+            paired_mask_samples=True,
+            batch_size=args.b,
+            num_workers=args.num_workers,
+            train_mode=args.mode,
+            val_mode="uniform",
+            test_mode="uniform"
+        )
 
     log_name = datetime.datetime.now().strftime("%Y-%m-%d_%H:%M_")
     if args.label:

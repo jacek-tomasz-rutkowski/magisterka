@@ -56,11 +56,12 @@ def load_transferred_model(
     ...
 
 
-def load_transferred_model(name, dataset, num_classes, path=None, device="cpu"):
+def load_transferred_model(name, dataset, path=None, device="cpu"):
 # def load_transferred_model(name, path=None, device="cpu"):
     """
     Load a model transferred to CIFAR10.
     """
+    num_classes = 2 if dataset == "gastro" else 10
     model: nn.Module  # T2T_ViT | ViTForImageClassification | SwinForImageClassification
     if dataset == "cifar_10":
         transferred_dir = PROJECT_ROOT / "saved_models/transferred/cifar10"
@@ -69,7 +70,7 @@ def load_transferred_model(name, dataset, num_classes, path=None, device="cpu"):
         swin_path = "swin_epoch-37_acc-97.34.pth"
     if dataset == "gastro":
         transferred_dir = PROJECT_ROOT / "saved_models/transferred/gastro"
-        t2t_vit_path = "epoch-8_acc-91.5.pth"
+        t2t_vit_path = "epoch-20_acc-93.5.pth"
     #     # TODO: vit_path and swin_path 
 
     if name == "t2t_vit":
