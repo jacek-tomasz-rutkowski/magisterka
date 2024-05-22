@@ -86,13 +86,18 @@ class GastroDataset(Dataset):
     label_names = ["normal", "polyp"]
     name_to_label = {name: label for label, name in enumerate(label_names)}
 
-    def __init__(self, train: str, root: str | Path, transform: v2.Transform | None = None) -> None:
+    def __init__(self, train: bool, root: str | Path, transform: v2.Transform | None = None) -> None:
         self.root = Path(root).expanduser()
         self.train = train
-        if train == "train":
-            self.transform = transform or self.default_train_transform()
+        if train:
+            self.transform = self.default_train_transform()
         else:
-            self.transform = transform or self.default_transform()
+            self.transform = self.default_transform()
+
+        # if train:
+        #     self.transform = transform or self.default_train_transform()
+        # else:
+        #     self.transform = transform or self.default_transform()
         # self.transform = transform self.default_train_transform()
 
         # Maps image names (without .jpg) to {height, width, bbox: [{label, xmin, ymin, xmax, ymax}, ...]}.
@@ -103,12 +108,10 @@ class GastroDataset(Dataset):
 
         # Add images with polyps.
         all_polyps = sorted((self.root / "gastro-hyper-kvasir/segmented-images/images").glob("*.jpg"))
-        if train == "train":
+        if train:
             polyps = all_polyps[:int(0.9*len(all_polyps))]
-        elif train == "test":
+        else:
             polyps = all_polyps[int(0.9*len(all_polyps)):]
-        else: 
-            polyps = all_polyps
 
         for p in polyps:
             segmentation_p = self.root / "gastro-hyper-kvasir/segmented-images/masks" / p.name
@@ -125,12 +128,10 @@ class GastroDataset(Dataset):
         # Add images without polyps.
         # changed path from images-images/images
         all_no_polyps = sorted((self.root / "gastro-hyper-kvasir/unlabeled-images-similar/images").glob("*.jpg"))
-        if train == "train":
+        if train:
             no_polyps = all_no_polyps[:int(0.9*len(all_no_polyps))]
-        elif train == "test":
-            no_polyps = all_no_polyps[int(0.9*len(all_no_polyps)):]
         else:
-            no_polyps = all_no_polyps
+            no_polyps = all_no_polyps[int(0.9*len(all_no_polyps)):]
 
         for p in no_polyps:
             self.dataitems.append(
@@ -285,29 +286,39 @@ def collate_gastro_batch(batch: list[GastroDataitem]) -> GastroBatch:
     # ```
 
 
-def collate_gastro_masks_batch(batch: list[GastroMasksDataitem]):
+def collate_gastro_masks_batch(batch: list[GastroMasksDataitem]) -> GastroBatchMasks:
     """Function for collating a list of dataitems into a batch, for use in dataloaders as collate_fn."""
+    return GastroBatchMasks(
+        image=default_collate([d.image for d in batch]),
+        label=default_collate([d.label for d in batch]),
+        masks=default_collate([d.masks for d in batch]),
+        segmentation=default_collate([d.segmentation for d in batch]),
+        bboxes=[d.bboxes for d in batch],  # We could use torch.nested in the future, but it's experimental.
+    )
 
-    return {"images": default_collate([d["images"].float() for d in batch]),
-            "labels": default_collate([d["labels"] for d in batch]),
-            "masks": default_collate([d["masks"] for d in batch]),
-            "segmentation": default_collate([d["segmentation"].float() for d in batch]),
-            "bboxes": [d["bboxes"].float() for d in batch]}
+    # return {"images": default_collate([d["images"].float() for d in batch]),
+    #         "labels": default_collate([d["labels"] for d in batch]),
+    #         "masks": default_collate([d["masks"] for d in batch]),
+    #         "segmentation": default_collate([d["segmentation"].float() for d in batch]),
+    #         "bboxes": [d["bboxes"].float() for d in batch]}
 
 class GastroDatasetWrapper(Dataset):
     """
     Wrapper dataset for polyp detection in endoscopic images.
     """
 
-    def __init__(self, root: str | Path, 
+    def __init__(self,
+                train: bool, 
+                root: str | Path, 
                 num_players: int,
                 num_mask_samples: int,
                 paired_mask_samples: bool,
                 mode: str = "uniform",
                 transform: v2.Transform | None = None,) -> None:
         
-        self.wrapped_dataset = GastroDataset(train="surrogate", root=root, transform=transform)
+        self.wrapped_dataset = GastroDataset(train=train, root=root, transform=transform)
 
+        self.train = train
         self.num_players = num_players
         self.num_mask_samples = num_mask_samples
         self.paired_mask_samples = paired_mask_samples
@@ -315,7 +326,7 @@ class GastroDatasetWrapper(Dataset):
         self.mode = mode
   
 
-    def __getitem__(self, index: int) -> GastroDataitem:
+    def __getitem__(self, index: int) -> GastroMasksDataitem:
         image, label, segmentation, bboxes = self.wrapped_dataset[index]
 
         masks = generate_masks(
@@ -324,11 +335,12 @@ class GastroDatasetWrapper(Dataset):
             paired_mask_samples=self.paired_mask_samples,
             mode=self.mode
         )
-        # dataitem = GastroMasksDataitem(image=image, label=label, masks=masks, 
-        #                                segmentation=segmentation, bboxes=bboxes)
+        return GastroMasksDataitem(image=image, label=label, masks=masks, 
+                                   segmentation=segmentation, bboxes=bboxes)
         
-        return {"images": image, "labels": label, "masks": masks, 
-                "segmentation": segmentation, "bboxes": bboxes}
+        
+        # return {"images": image, "labels": label, "masks": masks, 
+        #         "segmentation": segmentation, "bboxes": bboxes}
         
     
     def __len__(self) -> int:
@@ -369,20 +381,25 @@ class Gastro_Datamodule(pl.LightningDataModule):
                                                        collate_fn=collate_gastro_masks_batch)
         
         self.prepare_data_per_node = True
+    
+    def prepare_data(self) -> None:
+        # Instantiate datasets to make sure they exist.
+        GastroDatasetWrapper(train=True, mode=self.train_mode, **self._dataset_kwargs)
+        GastroDatasetWrapper(train=False, mode=self.test_mode, **self._dataset_kwargs)
 
 
     def setup(self, stage: Optional[str] = None) -> None:
         if stage == "fit" or stage is None:
-            train_set_full = GastroDatasetWrapper(mode=self.train_mode, **self._dataset_kwargs)
+            train_set_full = GastroDatasetWrapper(train=True, mode=self.train_mode, **self._dataset_kwargs)
             train_set_size = int(len(train_set_full) * 0.9)
             valid_set_size = len(train_set_full) - train_set_size
             self.train, self.validate = random_split(train_set_full, [train_set_size, valid_set_size])
             # Replace self.validate to be the same subset of indices, but use a Dataset with mode=val_mode.
-            val_set_full = GastroDatasetWrapper(mode=self.val_mode, **self._dataset_kwargs)
+            val_set_full = GastroDatasetWrapper(train=True, mode=self.val_mode, **self._dataset_kwargs)
             self.validate.dataset = val_set_full
 
         if stage == "test" or stage is None:
-            self.test = GastroDatasetWrapper(mode=self.test_mode, **self._dataset_kwargs)
+            self.test = GastroDatasetWrapper(train=False, mode=self.test_mode, **self._dataset_kwargs)
 
     def train_dataloader(self):
         return DataLoader(self.train, shuffle=True, **self._dataloader_kwargs)

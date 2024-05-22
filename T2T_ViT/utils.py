@@ -57,6 +57,7 @@ def load_transferred_model(
 
 
 def load_transferred_model(name, dataset, num_classes, path=None, device="cpu"):
+# def load_transferred_model(name, path=None, device="cpu"):
     """
     Load a model transferred to CIFAR10.
     """
@@ -68,8 +69,8 @@ def load_transferred_model(name, dataset, num_classes, path=None, device="cpu"):
         swin_path = "swin_epoch-37_acc-97.34.pth"
     if dataset == "gastro":
         transferred_dir = PROJECT_ROOT / "saved_models/transferred/gastro"
-        t2t_vit_path = "epoch-45_acc-96.0.pth"
-        # TODO: vit_path and swin_path 
+        t2t_vit_path = "epoch-8_acc-91.5.pth"
+    #     # TODO: vit_path and swin_path 
 
     if name == "t2t_vit":
         path = path or transferred_dir / t2t_vit_path
@@ -84,8 +85,8 @@ def load_transferred_model(name, dataset, num_classes, path=None, device="cpu"):
     else:
         raise ValueError(f"Unexpected backbone name: {name}")
     # we need to ignore head.weight and head.bias
-    load_checkpoint(path, model, ignore_keys=["head.weight", "head.bias"], device=device)
-    # load_checkpoint(path, model, device=device)
+    # load_checkpoint(path, model, ignore_keys=["head.weight", "head.bias"], device=device)
+    load_checkpoint(path, model, device=device)
     return model
 
 
@@ -163,14 +164,14 @@ def load_state_dict(checkpoint_path, model, use_ema=False, num_classes=1000, del
             state_dict['head' + '.weight'] = model.state_dict()['head' + '.weight']
             state_dict['head' + '.bias'] = model.state_dict()['head' + '.bias']
 
-        if del_posemb:
-            del state_dict['pos_embed']
+        # if del_posemb:
+        #     del state_dict['pos_embed']
 
-        old_posemb = state_dict['pos_embed']
+        # old_posemb = state_dict['pos_embed']
 
-        if model.pos_embed.shape != old_posemb.shape:  # need resize the position embedding by interpolate
-            new_posemb = resize_pos_embed(old_posemb, model.pos_embed)
-            state_dict['pos_embed'] = new_posemb
+        # if model.pos_embed.shape != old_posemb.shape:  # need resize the position embedding by interpolate
+        #     new_posemb = resize_pos_embed(old_posemb, model.pos_embed)
+        #     state_dict['pos_embed'] = new_posemb
 
         return state_dict
     else:
@@ -178,7 +179,7 @@ def load_state_dict(checkpoint_path, model, use_ema=False, num_classes=1000, del
         raise FileNotFoundError()
 
 
-def load_for_transfer_learning(model, checkpoint_path, use_ema=False, strict=True, num_classes=1000):
+def load_for_transfer_learning(model, checkpoint_path, use_ema=False, strict=False, num_classes=1000):
     state_dict = load_state_dict(checkpoint_path, model, use_ema, num_classes)
     model.load_state_dict(state_dict, strict=strict)
 

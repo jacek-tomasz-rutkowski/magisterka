@@ -152,7 +152,7 @@ if args.dataset != "gastro":
 print(f"learning rate:{args.lr}, weight decay: {args.wd}")
 # create T2T-ViT Model
 print("==> Building model..")
-net = t2t_vit_14(pretrained=False)
+net = t2t_vit_14(pretrained=False, num_classes=args.num_classes)
 # net = create_model(
 #     args.model,
 #     pretrained=args.pretrained,
@@ -214,7 +214,12 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
-    for batch_idx, (inputs, targets, segmentation, bboxes) in enumerate(trainloader):
+    for batch_idx, batch in enumerate(trainloader):
+        if args.dataset == "gastro":
+            inputs, targets = batch.image, batch.label
+        else:
+            inputs, targets = batch["images"], batch["labels"]
+
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
         outputs = net(inputs)
@@ -242,7 +247,11 @@ def test(epoch):
     correct = 0
     total = 0
     with torch.no_grad():
-        for batch_idx, (inputs, targets, segmentation, bboxes) in enumerate(testloader):
+        for batch_idx, batch in enumerate(testloader):
+            if args.dataset == "gastro":
+                inputs, targets = batch.image, batch.label
+            else:
+                inputs, targets = batch["images"], batch["labels"]
             inputs, targets = inputs.to(device), targets.to(device)
             outputs = net(inputs)
             loss = criterion(outputs, targets)

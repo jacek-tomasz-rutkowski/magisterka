@@ -11,6 +11,8 @@ from torch.optim import AdamW
 from transformers import get_cosine_schedule_with_warmup
 
 from utils import load_transferred_model
+import models.t2t_vit
+from utils import load_checkpoint
 from datasets.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks_to_batch
 from datasets.gastro import Gastro_Datamodule
 
@@ -45,10 +47,19 @@ class Surrogate(pl.LightningModule):
         super().__init__()
         # Save arguments (output_dim, ..., num_players) into self.hparams.
         self.save_hyperparameters(ignore=["target_model"])
+        self.dataset = dataset
         self.backbone_name = backbone_name
         self.target_model = target_model
 
         # Backbone initialization
+        # self.backbone = models.t2t_vit.t2t_vit_14(num_classes=output_dim)
+        # cifar10/ckpt_0.01_0.0005_97.5.pth
+        # if dataset == "gastro":
+            # backbone_path = PROJECT_ROOT / "saved_models/transferred/gastro/epoch-45_acc-96.0.pth"
+            # load_checkpoint(backbone_path, self.backbone, ignore_keys=["head.weight", "head.bias"])
+        # else:
+            # backbone_path = PROJECT_ROOT / "saved_models/transferred/cifar10/ckpt_0.01_0.0005_97.5.pth"
+            # load_checkpoint(backbone_path, self.backbone, ignore_keys=["head.weight", "head.bias"])  
         self.backbone = load_transferred_model(backbone_name, dataset, num_classes=output_dim, device="cuda")
 
         # Nullify classification head built in the backbone module and rebuild.
@@ -93,6 +104,7 @@ class Surrogate(pl.LightningModule):
         
         for key in layers_to_remove:
             del destination[key]
+            
         return destination
 
     @staticmethod
@@ -111,9 +123,13 @@ class Surrogate(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         assert self.target_model is not None
-        images, labels, masks = batch["images"], batch["labels"], batch["masks"]
+        if self.dataset == "gastro":
+            images, labels, masks = batch.image, batch.label, batch.masks
+        else:
+            images, labels, masks = batch["images"], batch["labels"], batch["masks"]
 
         # logits = self(images, masks)  # ['logits']
+
         images_masked, masks, labels = apply_masks_to_batch(images, masks, labels)
 
         logits = self(images_masked.float())  # ['logits']
@@ -124,15 +140,20 @@ class Surrogate(pl.LightningModule):
             else:
                 logits_target = self.target_model(images.to(self.target_model.device)).logits.to(self.device)
 
+
         loss = self._surrogate_loss(logits=logits, logits_target=logits_target)
+
         self.log("train/loss", loss, prog_bar=True)
-        self.log("train/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
         self.log("train/accuracy", (logits.argmax(dim=1) == labels).float().mean(), prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         assert self.target_model is not None
-        images, labels, masks = batch["images"], batch["labels"], batch["masks"]
+        if self.dataset == "gastro":
+            images, labels, masks = batch.image, batch.label, batch.masks
+        else:
+            images, labels, masks = batch["images"], batch["labels"], batch["masks"]
+
         images_masked, masks, labels = apply_masks_to_batch(images, masks, labels)
 
         logits = self(images_masked.float())
@@ -148,7 +169,11 @@ class Surrogate(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         assert self.target_model is not None
-        images, labels, masks = batch["images"], batch["labels"], batch["masks"]
+        if self.dataset == "gastro":
+            images, labels, masks = batch.image, batch.label, batch.masks
+        else:
+            images, labels, masks = batch["images"], batch["labels"], batch["masks"]
+
         images_masked, masks, labels = apply_masks_to_batch(images, masks, labels)
 
         logits = self(images_masked.float())
@@ -200,6 +225,8 @@ def main() -> None:
     args = parser.parse_args()
 
     num_classes = 2 if args.dataset == "gastro" else 10
+    # target_model = models.t2t_vit.t2t_vit_14(num_classes=num_classes)
+    
     target_model = load_transferred_model(args.target_model_name, 
                                           args.dataset, 
                                           num_classes=num_classes,
@@ -242,11 +269,11 @@ def main() -> None:
         / f"{args.label}_{args.backbone_name}_player{surrogate.num_players}_lr{args.lr}_wd{args.wd}_b{args.b}"
     )
     log_and_checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    print(f"{log_and_checkpoint_dir=}")
+
     trainer = pl.Trainer(
         max_epochs=100,
         default_root_dir=log_and_checkpoint_dir,
-        log_every_n_steps=15,
+        # log_every_n_steps=15,
         callbacks=RichProgressBar(leave=True)
     )  # logger=False)
     trainer.fit(surrogate, datamodule)
