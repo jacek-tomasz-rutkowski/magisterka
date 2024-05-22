@@ -1,5 +1,5 @@
 
-from typing import cast, Any, Sized, TypedDict, TypeVar
+from typing import Any
 
 import torch
 import torch.utils.data
@@ -22,40 +22,6 @@ def default_transform(target_image_size: int = 224) -> v2.Transform:
             v2.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
         ]
     )
-
-
-class ImageLabelDataitem(TypedDict):
-    image: tv_tensors.Image  # Before transform: shape CHW, dtype uint8.
-    label: int
-
-
-T_co = TypeVar('T_co', covariant=True)
-
-
-class SizedDataset(torch.utils.data.Dataset[T_co], Sized):
-    pass
-
-
-class ImageClassificationDatasetWrapper(SizedDataset[ImageLabelDataitem]):
-    """
-    Turns a dataset that yields (image, label) tuples into one that yields ImageLabelDataitem dicts.
-
-    Images can be one of the following types:
-    - torch.Tensor (shape CHW, dtype uint8),
-    - PIL Image,
-    - np.ndarray (shape HWC, uint8)
-    """
-    def __init__(self, dataset: SizedDataset[tuple[Any, int]], transform: v2.Transform):
-        self.dataset = dataset
-        self.transform = transform
-
-    def __getitem__(self, index: int) -> ImageLabelDataitem:
-        image, label = self.dataset[index]
-        dataitem = ImageLabelDataitem(image=v2.functional.to_image(image), label=label)
-        return cast(ImageLabelDataitem, self.transform(dataitem))
-
-    def __len__(self) -> int:
-        return len(self.dataset)
 
 
 class Erase(v2.Transform):

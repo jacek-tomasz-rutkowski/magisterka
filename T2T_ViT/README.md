@@ -9,7 +9,7 @@
 * Oglądanie statusu GPU: `srun --jobid $JOB_ID nvidia-smi`
 * Ubijanie jobu: `scancel --me --signal=SIGINT $JOB_ID`
 * Anulowanie czekających na alokację job'ów `scancel --me -t PENDING`
-* Działające joby: `squeue -u $USER`
+* Działające joby: `squeue --me`
 * Zakończone joby: `sacct  --format=JobID,Start,End,Elapsed,NCPUS,NodeList,NTasks,ExitCode,JobName,User,State`
 * Wznawianie treningu z checkpointu: patrz `job-continue.sh`
 

@@ -85,7 +85,7 @@ parser.add_argument(
 )
 # Transfer learning
 parser.add_argument("--transfer-learning", default=True, help="Enable transfer learning")
-parser.add_argument("--transfer-model", type=str, default="saved_models/downloaded/imagenet/81.5_T2T_ViT_14.pth", 
+parser.add_argument("--transfer-model", type=str, default="saved_models/downloaded/imagenet/81.5_T2T_ViT_14.pth",
                     help="Path to pretrained model for transfer learning")
 parser.add_argument(
     "--transfer-ratio", type=float, default=0.01, help="lr ratio between classifier and backbone in transfer learning"

@@ -4,12 +4,12 @@
 # LICENSE file in the root directory of this file
 # All rights reserved.
 
-'''
+"""
 - load_for_transfer_learning: load pretrained paramters to model in transfer learning
 - get_mean_and_std: calculate the mean and std value of dataset.
 - msr_init: net parameter initialization.
 - progress_bar: progress bar mimic xlua.progress.
-'''
+"""
 import glob
 import logging
 import math
@@ -17,7 +17,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Literal, cast, overload
+from typing import Any, Literal, TypeVar, Sequence, cast, overload
 
 import torch
 import torch.nn as nn
@@ -28,9 +28,8 @@ from torch.utils.data.dataset import Dataset
 from transformers import SwinConfig, SwinForImageClassification, ViTConfig, ViTForImageClassification
 from models.t2t_vit import T2T_ViT, t2t_vit_14
 
-_logger = logging.getLogger(__name__)
 
-os.environ['TF_CPP_MIN_LOG_LEVEL']='2'  # Silence tensorflow warnings on CPU instructions, we only use TF logging.
+_logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent  # Path to the T2T_ViT/ directory.
 
@@ -38,22 +37,19 @@ PROJECT_ROOT = Path(__file__).parent  # Path to the T2T_ViT/ directory.
 @overload
 def load_transferred_model(
     name: Literal["t2t_vit"], path: Path | None = None, device: Any = "cpu", num_classes: int = 10
-) -> T2T_ViT:
-    ...
+) -> T2T_ViT: ...
 
 
 @overload
 def load_transferred_model(
     name: Literal["swin"], path: Path | None = None, device: Any = "cpu", num_classes: int = 10
-) -> SwinForImageClassification:
-    ...
+) -> SwinForImageClassification: ...
 
 
 @overload
 def load_transferred_model(
     name: Literal["vit"], path: Path | None = None, device: Any = "cpu", num_classes: int = 10
-) -> ViTForImageClassification:
-    ...
+) -> ViTForImageClassification: ...
 
 
 def load_transferred_model(name, path=None, device="cpu", num_classes=10):
@@ -120,28 +116,28 @@ def resize_pos_embed(posemb: torch.Tensor, posemb_new: torch.Tensor) -> torch.Te
         ntok_new -= 1
     else:
         posemb_tok, posemb_grid = posemb[:, :0], posemb[0]
-    gs_old = int(math.sqrt(len(posemb_grid)))     # 14
-    gs_new = int(math.sqrt(ntok_new))             # 24
-    _logger.info('Position embedding grid-size from %s to %s', gs_old, gs_new)
+    gs_old = int(math.sqrt(len(posemb_grid)))  # 14
+    gs_new = int(math.sqrt(ntok_new))  # 24
+    _logger.info("Position embedding grid-size from %s to %s", gs_old, gs_new)
     # [1, 196, dim]->[1, 14, 14, dim]->[1, dim, 14, 14]
     posemb_grid = posemb_grid.reshape(1, gs_old, gs_old, -1).permute(0, 3, 1, 2)
     # [1, dim, 14, 14] -> [1, dim, 24, 24]
-    posemb_grid = F.interpolate(posemb_grid, size=(gs_new, gs_new), mode='bicubic')
+    posemb_grid = F.interpolate(posemb_grid, size=(gs_new, gs_new), mode="bicubic")
     # [1, dim, 24, 24] -> [1, 24*24, dim]
     posemb_grid = posemb_grid.permute(0, 2, 3, 1).reshape(1, gs_new * gs_new, -1)
-    posemb = torch.cat([posemb_tok, posemb_grid], dim=1)   # [1, 24*24+1, dim]
+    posemb = torch.cat([posemb_tok, posemb_grid], dim=1)  # [1, 24*24+1, dim]
     return posemb
 
 
 def load_state_dict(checkpoint_path, model, use_ema=False, num_classes=1000, del_posemb=False):
     if checkpoint_path and os.path.isfile(checkpoint_path):
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
-        state_dict_key = 'state_dict'
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        state_dict_key = "state_dict"
         if isinstance(checkpoint, dict):
-            if use_ema and 'state_dict_ema' in checkpoint:
-                state_dict_key = 'state_dict_ema'
+            if use_ema and "state_dict_ema" in checkpoint:
+                state_dict_key = "state_dict_ema"
         if state_dict_key and state_dict_key in checkpoint:
-            state_dict = {k.removeprefix('module.'): v for k, v in checkpoint[state_dict_key].items()}
+            state_dict = {k.removeprefix("module."): v for k, v in checkpoint[state_dict_key].items()}
         else:
             state_dict = checkpoint
         _logger.info("Loaded {} from checkpoint '{}'".format(state_dict_key, checkpoint_path))
@@ -149,17 +145,17 @@ def load_state_dict(checkpoint_path, model, use_ema=False, num_classes=1000, del
             # completely discard fully connected for all other differences between pretrained and created model
             # del state_dict['head' + '.weight']
             # del state_dict['head' + '.bias']
-            state_dict['head' + '.weight'] = model.state_dict()['head' + '.weight']
-            state_dict['head' + '.bias'] = model.state_dict()['head' + '.bias']
+            state_dict["head" + ".weight"] = model.state_dict()["head" + ".weight"]
+            state_dict["head" + ".bias"] = model.state_dict()["head" + ".bias"]
 
         if del_posemb:
-            del state_dict['pos_embed']
+            del state_dict["pos_embed"]
 
-        old_posemb = state_dict['pos_embed']
+        old_posemb = state_dict["pos_embed"]
 
         if model.pos_embed.shape != old_posemb.shape:  # need resize the position embedding by interpolate
             new_posemb = resize_pos_embed(old_posemb, model.pos_embed)
-            state_dict['pos_embed'] = new_posemb
+            state_dict["pos_embed"] = new_posemb
 
         return state_dict
     else:
@@ -173,11 +169,11 @@ def load_for_transfer_learning(model, checkpoint_path, use_ema=False, strict=Tru
 
 
 def get_mean_and_std(dataset: Dataset) -> tuple[torch.Tensor, torch.Tensor]:
-    '''Compute the mean and std value of dataset, as a pair of tensors of shape (3,).'''
+    """Compute the mean and std value of dataset, as a pair of tensors of shape (3,)."""
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, num_workers=0)
     mean = torch.zeros(3)
     std = torch.zeros(3)
-    print('==> Computing mean and std..')
+    print("==> Computing mean and std..")
     for inputs, targets in dataloader:
         for i in range(3):
             mean[i] += inputs[:, i, :, :].mean()
@@ -188,10 +184,10 @@ def get_mean_and_std(dataset: Dataset) -> tuple[torch.Tensor, torch.Tensor]:
 
 
 def init_params(net):
-    '''Init layer parameters.'''
+    """Init layer parameters."""
     for m in net.modules():
         if isinstance(m, nn.Conv2d):
-            init.kaiming_normal(m.weight, mode='fan_out')
+            init.kaiming_normal(m.weight, mode="fan_out")
             if m.bias:
                 init.constant(m.bias, 0)
         elif isinstance(m, nn.BatchNorm2d):
@@ -206,7 +202,7 @@ def init_params(net):
 # _, term_width_str = os.popen('stty size', 'r').read().split()
 # term_width = int(term_width_str)
 
-TOTAL_BAR_LENGTH = 65.
+TOTAL_BAR_LENGTH = 65.0
 last_time = time.time()
 begin_time = last_time
 
@@ -219,13 +215,13 @@ def progress_bar(current, total, msg=None):
     cur_len = int(TOTAL_BAR_LENGTH * current / total)
     rest_len = int(TOTAL_BAR_LENGTH - cur_len) - 1
 
-    sys.stdout.write(' [')
+    sys.stdout.write(" [")
     for i in range(cur_len):
-        sys.stdout.write('=')
-    sys.stdout.write('>')
+        sys.stdout.write("=")
+    sys.stdout.write(">")
     for i in range(rest_len):
-        sys.stdout.write('.')
-    sys.stdout.write(']')
+        sys.stdout.write(".")
+    sys.stdout.write("]")
 
     cur_time = time.time()
     step_time = cur_time - last_time
@@ -233,12 +229,12 @@ def progress_bar(current, total, msg=None):
     tot_time = cur_time - begin_time
 
     L = []
-    L.append('  Step: %s' % format_time(step_time))
-    L.append(' | Tot: %s' % format_time(tot_time))
+    L.append("  Step: %s" % format_time(step_time))
+    L.append(" | Tot: %s" % format_time(tot_time))
     if msg:
-        L.append(' | ' + msg)
+        L.append(" | " + msg)
 
-    msg = ''.join(L)
+    msg = "".join(L)
     sys.stdout.write(msg)
     # for i in range(term_width - int(TOTAL_BAR_LENGTH) - len(msg) - 3):
     #     sys.stdout.write(' ')
@@ -246,12 +242,12 @@ def progress_bar(current, total, msg=None):
     # # Go back to the center of the bar.
     # for i in range(term_width - int(TOTAL_BAR_LENGTH / 2) + 2):
     #     sys.stdout.write('\b')
-    sys.stdout.write(' %d/%d ' % (current + 1, total))
+    sys.stdout.write(" %d/%d " % (current + 1, total))
 
     if current < total - 1:
-        sys.stdout.write('\r')
+        sys.stdout.write("\r")
     else:
-        sys.stdout.write('\n')
+        sys.stdout.write("\n")
     sys.stdout.flush()
 
 
@@ -266,25 +262,25 @@ def format_time(seconds: float) -> str:
     seconds = seconds - secondsf
     millis = int(seconds * 1000)
 
-    f = ''
+    f = ""
     i = 1
     if days > 0:
-        f += str(days) + 'D'
+        f += str(days) + "D"
         i += 1
     if hours > 0 and i <= 2:
-        f += str(hours) + 'h'
+        f += str(hours) + "h"
         i += 1
     if minutes > 0 and i <= 2:
-        f += str(minutes) + 'm'
+        f += str(minutes) + "m"
         i += 1
     if secondsf > 0 and i <= 2:
-        f += str(secondsf) + 's'
+        f += str(secondsf) + "s"
         i += 1
     if millis > 0 and i <= 2:
-        f += str(millis) + 'ms'
+        f += str(millis) + "ms"
         i += 1
-    if f == '':
-        f = '0ms'
+    if f == "":
+        f = "0ms"
     return f
 
 
@@ -311,3 +307,23 @@ def find_latest_checkpoints(dir: Path) -> list[Path]:
     if not files:
         raise FileNotFoundError(f"No checkpoints found in: {dir}")
     return [Path(p) for p in sorted(files, key=lambda x: Path(x).stat().st_mtime, reverse=True)]
+
+
+T = TypeVar("T")
+
+
+def random_split_sequence(
+    sequence: Sequence[T], lengths: Sequence[float] | Sequence[int], generator: torch.Generator
+) -> tuple[list[T], ...]:
+    """
+    Randomly split a sequence into lists of given lengths or proportions.
+
+    If given fractions that sum up to 1, the lengths will be computed
+    initially as floor(frac * len(sequence)) and any remainders will be
+    distributed in round-robin fashion to the lengths.
+
+    This works exactly like torch.utils.data.random_split(), except it takes any sequence,
+    and outputs a tuple of lists (instead of Subset datasets).
+    """
+    subsets = torch.utils.data.random_split(cast(torch.utils.data.Dataset[T], sequence), lengths, generator)
+    return tuple(list(cast(Sequence[T], subset)) for subset in subsets)

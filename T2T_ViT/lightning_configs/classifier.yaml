@@ -1,5 +1,6 @@
 model:
-  backbone: swin_tiny_patch4_window7_224.ms_in1k  # vit_small_patch16_224.augreg_in1k
+  # backbone: vit_small_patch16_224.augreg_in1k
+  backbone: swin_tiny_patch4_window7_224.ms_in1k
   optimizer_kwargs:
     opt: sgd
     lr: 0.001
@@ -12,7 +13,8 @@ model:
     min_lr: 1e-5
 
 data:
-  class_path:  GastroDataModule  # CIFAR10DataModule
+  class_path: CIFAR10DataModule
+  # class_path: GastroDataModule
   init_args:
     dataloader_kwargs:
       batch_size: 64
@@ -20,10 +22,10 @@ data:
       pin_memory: true
 
 trainer:
-  max_epochs: 40
+  max_epochs: 250  # ~350 and ~3h for Gastro, ~20 for CIFAR10
   accumulate_grad_batches: 1
 
-seed_everything: 1
+seed_everything: 2
 
 # As a backbone:
 # - swin_tiny_patch4_window7_224.ms_in1k     , model size: 106.1 MiB parameters: 26.3 M

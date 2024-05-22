@@ -3,14 +3,14 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-import torch
 import pytorch_lightning as pl
+import torch
 from pytorch_lightning.callbacks import RichProgressBar
 
-from utils import load_transferred_model, find_latest_checkpoint, find_latest_checkpoints
-from vit_shapley.modules.surrogate import Surrogate
+from datasets.CIFAR_10_Dataset import CIFAR_10_Datamodule
+from utils import PROJECT_ROOT, find_latest_checkpoint, find_latest_checkpoints, load_transferred_model
 from vit_shapley.modules.explainer import Explainer
-from datasets.CIFAR_10_Dataset import CIFAR_10_Datamodule, PROJECT_ROOT
+from vit_shapley.modules.surrogate import Surrogate
 
 
 def cleanup_checkpoint(source: Path, target: Path, prefix: str) -> None:

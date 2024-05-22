@@ -5,10 +5,10 @@ from functools import partial
 from typing import Any, Callable, Type
 
 import jsonargparse
+import lightning as L
 import torch
 import torch.nn
 import torch.utils.data
-import lightning as L
 from lightning.pytorch.callbacks import (
     LearningRateMonitor,
     ModelCheckpoint,
@@ -16,8 +16,8 @@ from lightning.pytorch.callbacks import (
     RichProgressBar,
 )
 from lightning.pytorch.cli import LightningArgumentParser, LightningCLI, SaveConfigCallback
-# from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger  # noqa: F401
 from lightning.pytorch.loggers import Logger as LightningLogger
+
 from utils import PROJECT_ROOT
 
 
@@ -53,15 +53,20 @@ def lightning_main(
     torch.set_float32_matmul_precision("medium")
 
     # Ignore a few spurious warnings from Lightning.
-    # warnings.filterwarnings("ignore", message="The `srun` command is available on your system")
+    warnings.filterwarnings("ignore", message="The `srun` command is available on your system")
     warnings.filterwarnings("ignore", message="Experiment logs directory .* exists")
     warnings.filterwarnings("ignore", message="The number of training batches .* is smaller than the logging interval")
+    # Silence tensorflow warnings on CPU instructions, we only use TF for logging/tensorboard.
+    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
     # Choose where to save logs and checkpoints.
     checkpoints_dir = PROJECT_ROOT / "checkpoints"
     (checkpoints_dir / experiment_name).mkdir(exist_ok=True, parents=True)
-    version: str = "s" + os.environ.get("SLURM_JOB_ID", "")
-    if not version:
+    slurm_job_id = os.environ.get("SLURM_JOB_ID", "")
+    version: str
+    if slurm_job_id:
+        version = f"s{slurm_job_id}"
+    else:
         # If not running with slurm, set the version to the next available number, prefixed with "v" instead of "s".
         versions = [int(p.name[1:]) for p in (checkpoints_dir / experiment_name).iterdir() if p.name.startswith("v")]
         version = f"v{max(versions, default=0) + 1}"
@@ -98,8 +103,9 @@ def lightning_main(
         parser_callback=parser_callback,
         # Type ignored because LightningCLI thinks it needs a class, while a constructor Callable is enough.
         save_config_callback=save_config_callback,  # type: ignore
-        save_config_kwargs={"overwrite": True}  # Otherwise continue doesn't work.
+        save_config_kwargs={"overwrite": True},  # Otherwise continue doesn't work.
     )
+    print("Finished")
 
 
 class _MyLightningCLI(LightningCLI):
@@ -115,6 +121,7 @@ class _MyLightningCLI(LightningCLI):
 
 class _LoggerSaveConfigCallback(SaveConfigCallback):
     """SaveConfigCallback subclass that logs the config as hyperparameters."""
+
     def __init__(self, *args, main_config_callback: Callable[[jsonargparse.Namespace], dict[str, Any]], **kwargs):
         super().__init__(*args, **kwargs)
         self.main_config_callback = main_config_callback

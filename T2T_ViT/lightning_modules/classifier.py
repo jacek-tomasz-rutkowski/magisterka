@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
 import lightning as L
 import timm
@@ -10,33 +10,27 @@ import torch
 import torch.nn
 import torch.utils.data
 import torchvision.datasets
-from lightning.pytorch.utilities.types import LRSchedulerConfigType, OptimizerLRSchedulerConfig
+from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from torch import Tensor
+from torch.utils.data import Subset
 from torchvision.transforms import v2
 
-from datasets.gastro import GastroBatch, GastroDataset, collate_gastro_batch
-from datasets.transforms import ImageClassificationDatasetWrapper, default_transform
-from utils import PROJECT_ROOT
-from .cli import lightning_main
 
-
-class _TimmModelProtocol(Protocol):
-    pretrained_cfg: dict[str, Any]
-
-    def forward(self, x: Tensor) -> Tensor: ...
-    def __call__(self, x: Tensor) -> Tensor: ...
-    def reset_classifier(self, num_classes: int) -> None: ...
-    def get_classifier(self) -> torch.nn.Module: ...
-
-
-class TimmModel(_TimmModelProtocol, torch.nn.Module):
-    """Base type for timm models."""
-
-    pass
-    # For example:
-    # - timm.models.vision_transformer.VisionTransformer
-    # - timm.models.swin_transformer.SwinTransformer
+from datasets.gastro import GastroDataitem, GastroDataset
+from datasets.transforms import default_transform
+from lightning_modules.cli import lightning_main
+from lightning_modules.common import (
+    BaseDataModule,
+    DataLoaderKwargs,
+    ImageLabelBatch,
+    ImageLabelDataitem,
+    SizedDataset,
+    TimmModel,
+    TransformedDataset,
+    get_head_and_backbone_parameters,
+)
+from utils import PROJECT_ROOT, find_latest_checkpoint, random_split_sequence
 
 
 class Classifier(L.LightningModule):
@@ -73,18 +67,22 @@ class Classifier(L.LightningModule):
             self.model = torch.jit.script(self.model)
 
     def forward(self, x: Tensor) -> Tensor:
+        """
+        Input: image batch (B, C, H, W).
+        Output: logits (B, output_dim).
+        """
         return self.model(x)
 
-    def training_step(self, batch: GastroBatch, batch_idx: int) -> Tensor:
+    def training_step(self, batch: ImageLabelBatch, batch_idx: int) -> Tensor:
         return self._common_step(batch, batch_idx, "train")
 
-    def validation_step(self, batch: GastroBatch, batch_idx: int) -> None:
+    def validation_step(self, batch: ImageLabelBatch, batch_idx: int) -> None:
         self._common_step(batch, batch_idx, "val")
 
-    def test_step(self, batch: GastroBatch, batch_idx: int) -> None:
+    def test_step(self, batch: ImageLabelBatch, batch_idx: int) -> None:
         self._common_step(batch, batch_idx, "test")
 
-    def _common_step(self, batch: GastroBatch, batch_idx: int, phase: str) -> Tensor:
+    def _common_step(self, batch: ImageLabelBatch, batch_idx: int, phase: str) -> Tensor:
         images, labels = batch["image"], batch["label"]
         batch_size = len(images)
         logits = self.forward(images)
@@ -99,23 +97,13 @@ class Classifier(L.LightningModule):
         lr = optimizer_kwargs.pop("lr")
         lr_head = optimizer_kwargs.pop("lr_head", lr)
 
-        head_parameters = self.model.get_classifier().parameters()
-        head_parameter_ids = set(id(p) for p in head_parameters)
-        backbone_parameters = [p for p in self.model.parameters() if id(p) not in head_parameter_ids]
-
+        head_p, backbone_p = get_head_and_backbone_parameters(self.model, self.model.get_classifier())
         optimizer = timm.optim.create_optimizer_v2(
-            [
-                {"params": backbone_parameters, "lr": lr},
-                {"params": head_parameters, "lr": lr_head},
-            ],
+            [{"params": backbone_p, "lr": lr}, {"params": head_p, "lr": lr_head}],
             **optimizer_kwargs,
         )
-
         scheduler, num_epochs = timm.scheduler.create_scheduler_v2(optimizer, **self.hparams["scheduler_kwargs"])
-
-        return OptimizerLRSchedulerConfig(
-            optimizer=optimizer, lr_scheduler=LRSchedulerConfigType(scheduler=scheduler, monitor="val/loss")
-        )
+        return {"optimizer": optimizer, "lr_scheduler": {"scheduler": scheduler, "monitor": "val/loss"}}
 
     def lr_scheduler_step(
         self, scheduler: torch.optim.lr_scheduler.LRScheduler | timm.scheduler.scheduler.Scheduler, metric: float | None
@@ -126,77 +114,64 @@ class Classifier(L.LightningModule):
         else:
             scheduler.step(epoch=self.current_epoch)
 
-
-class BaseDataModule(L.LightningDataModule):
-    def __init__(self, dataloader_kwargs: dict[str, Any]):
-        """
-        Args:
-        - dataloader_kwargs: passed to torch.utils.data.DataLoader().
-            Common/default args are batch_size=1, num_workers=0, pin_memory=False.
-        """
-        super().__init__()
-        self.dataloader_kwargs: dict[str, Any] = dataloader_kwargs
-        # These should be initialized in setup().
-        self.train_dataset: torch.utils.data.Dataset
-        self.val_dataset: torch.utils.data.Dataset
-        self.test_dataset: torch.utils.data.Dataset
-
-    def setup(self, stage: str) -> None:
-        assert stage in ["fit", "validate", "test", "predict"]
-        raise NotImplementedError
-
-    def train_dataloader(self) -> torch.utils.data.DataLoader:
-        return torch.utils.data.DataLoader(self.train_dataset, **self.dataloader_kwargs, shuffle=True)
-
-    def val_dataloader(self) -> torch.utils.data.DataLoader:
-        return torch.utils.data.DataLoader(self.val_dataset, **self.dataloader_kwargs)
-
-    def test_dataloader(self) -> torch.utils.data.DataLoader:
-        return torch.utils.data.DataLoader(self.test_dataset, **self.dataloader_kwargs)
+    @classmethod
+    def load_from_latest_checkpoint(cls, path: Path, map_location: Any = None, strict: bool = True) -> "Classifier":
+        return cast(
+            Classifier, cls.load_from_checkpoint(find_latest_checkpoint(path), map_location=map_location, strict=strict)
+        )
 
 
-class GastroDataModule(BaseDataModule):
+class GastroDataModule(BaseDataModule[GastroDataitem]):
+    """
+    Args:
+    - dataloader_kwargs: passed to DataLoader, like batch_size=1, num_workers=0, pin_memory=False.
+    """
+
     num_classes: int = 2
 
-    def __init__(self, root: Path = PROJECT_ROOT / "data", *, dataloader_kwargs: dict[str, Any]):
-        """
-        Args:
-        - dataloader_kwargs: passed to torch.utils.data.DataLoader().
-            Common/default args are batch_size=1, num_workers=0, pin_memory=False.
-        """
-        super().__init__(dict(collate_fn=collate_gastro_batch) | dataloader_kwargs)
-        self.save_hyperparameters()
-        self.root = PROJECT_ROOT / "data"
+    def __init__(self, root: Path = PROJECT_ROOT / "data", *, dataloader_kwargs: DataLoaderKwargs = {}):
+        super().__init__(dataloader_kwargs)
+        self.root = root
 
     def prepare_data(self) -> None:
-        assert (self.root / "gastro-hyper-kvasir").exists()
+        GastroDataset(self.root)
 
     def setup(self, stage: str) -> None:
         assert stage in ["fit", "validate", "test", "predict"]
         generator = torch.Generator().manual_seed(42)  # Fix a train-val split.
-        full_dataset = GastroDataset(self.root)
-        self.train_dataset, self.val_dataset = torch.utils.data.random_split(
-            full_dataset, [0.7, 0.3], generator=generator
-        )
-        # Replace .dataset to change the transform, but keep the Subset self.train_dataset intact.
-        self.train_dataset.dataset = GastroDataset(
-            PROJECT_ROOT / "data", transform=GastroDataset.default_train_transform()
-        )
+        train_ids, val_ids = random_split_sequence(range(len(GastroDataset(self.root))), [0.7, 0.3], generator)
+
+        train_transform = GastroDataset.default_train_transform()
+        val_transform = GastroDataset.default_transform()
+
+        self.train_dataset = Subset(GastroDataset(self.root, train_transform), train_ids)  # type: ignore
+        self.val_dataset = Subset(GastroDataset(self.root, val_transform), val_ids)  # type: ignore
         self.test_dataset = self.val_dataset
 
 
-class CIFAR10DataModule(BaseDataModule):
+class CIFAR10DataModule(BaseDataModule[ImageLabelDataitem]):
     num_classes: int = 10
 
-    def __init__(self, root: Path = PROJECT_ROOT / "data", *, dataloader_kwargs: dict[str, Any]):
+    def __init__(self, root: Path = PROJECT_ROOT / "data", *, dataloader_kwargs: DataLoaderKwargs = {}):
         """
         Args:
         - dataloader_kwargs: passed to torch.utils.data.DataLoader().
             Common/default args are batch_size=1, num_workers=0, pin_memory=False.
         """
         super().__init__(dataloader_kwargs)
-        self.save_hyperparameters()
         self.root = root
+        self.target_size = 224
+        self.eval_transform = default_transform(self.target_size)
+        self.train_transform = v2.Compose(
+            [
+                v2.RandomRotation(10),
+                v2.RandomResizedCrop(self.target_size, scale=(0.8, 1.0), ratio=(3.0 / 4.0, 4.0 / 3.0), antialias=True),
+                v2.RandomHorizontalFlip(),
+                v2.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
+                v2.ToDtype(torch.float32, scale=True),
+                v2.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
+            ]
+        )
 
     def prepare_data(self) -> None:
         download = False
@@ -205,38 +180,17 @@ class CIFAR10DataModule(BaseDataModule):
 
     def setup(self, stage: str) -> None:
         assert stage in ["fit", "validate", "test", "predict"]
-        target_image_size = 224
         if stage == "fit":
-            self.train_dataset = ImageClassificationDatasetWrapper(
-                torchvision.datasets.CIFAR10(root=self.root, train=True, download=False),
-                transform=self.default_train_transform(target_image_size),
-            )
+            self.train_dataset = self._dataset(train=True, transform=self.train_transform)
         if stage == "fit" or stage == "validate":
-            self.val_dataset = ImageClassificationDatasetWrapper(
-                torchvision.datasets.CIFAR10(root=self.root, train=False, download=False),
-                transform=self.default_transform(target_image_size),
-            )
+            self.val_dataset = self._dataset(train=False, transform=self.eval_transform)
         if stage == "test":
-            self.test_dataset = ImageClassificationDatasetWrapper(
-                torchvision.datasets.CIFAR10(root=self.root, train=False, download=False),
-                transform=self.default_transform(target_image_size),
-            )
+            self.test_dataset = self._dataset(train=False, transform=self.eval_transform)
 
-    @staticmethod
-    def default_transform(target_image_size: int) -> v2.Transform:
-        return default_transform(target_image_size)
-
-    @staticmethod
-    def default_train_transform(target_image_size: int) -> v2.Transform:
-        return v2.Compose(
-            [
-                v2.RandomRotation(10),
-                v2.RandomResizedCrop(target_image_size, scale=(0.8, 1.0), ratio=(3.0 / 4.0, 4.0 / 3.0), antialias=True),
-                v2.RandomHorizontalFlip(),
-                v2.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
-                v2.ToDtype(torch.float32, scale=True),
-                v2.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
-            ]
+    def _dataset(self, train: bool, transform: v2.Transform) -> SizedDataset[ImageLabelDataitem]:
+        return TransformedDataset(
+            torchvision.datasets.CIFAR10(root=self.root, train=train, download=False),
+            transform=lambda tpl: transform(ImageLabelDataitem(image=v2.functional.to_image(tpl[0]), label=tpl[1])),
         )
 
 
@@ -250,7 +204,7 @@ if __name__ == "__main__":
             "data.num_classes", "model.num_classes", apply_on="instantiate"
         ),
         main_config_callback=lambda config: {
-            "datamodule": config.data.class_path.split(".")[-1],
+            "dataset": config.data.class_path.split(".")[-1].removesuffix("DataModule"),
             "backbone": config.model.backbone.split(".")[0],
             "lr": config.model.optimizer_kwargs["lr"],
             "lr_head": config.model.optimizer_kwargs.get("lr_head"),

@@ -8,9 +8,11 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 from pytorch_lightning.callbacks import RichProgressBar
+from torch import Tensor
 
-from utils import is_true_string, load_transferred_model
-from datasets.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks
+from datasets.CIFAR_10_Dataset import CIFAR_10_Datamodule
+from utils import PROJECT_ROOT, is_true_string, load_transferred_model
+from vit_shapley.masks import apply_masks
 from vit_shapley.modules import explainer_utils
 from vit_shapley.modules.surrogate import Surrogate
 
@@ -72,7 +74,7 @@ class Explainer(pl.LightningModule):
         self.num_players = num_players
         self.surrogate = surrogate
 
-        self.__null: Optional[torch.Tensor] = None
+        self.__null: Optional[Tensor] = None
 
         self.backbone: nn.Module
         if use_surrogate_backbone:
@@ -181,7 +183,7 @@ class Explainer(pl.LightningModule):
     #     """Remove 'surrogate' from the state_dict (the stuff saved in checkpoints)."""
     #     return {k: v for k, v in super().state_dict().items() if not k.startswith("surrogate.")}
 
-    def null(self, images: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def null(self, images: Optional[Tensor] = None) -> Tensor:
         """
         Class probabilites for a fully masked input (cached after first call).
 
@@ -205,7 +207,7 @@ class Explainer(pl.LightningModule):
                 self.__null = logits.to(self.device)
         return self.__null
 
-    def grand(self, images: torch.Tensor) -> torch.Tensor:
+    def grand(self, images: Tensor) -> Tensor:
         """Class probabilities for unmasked inputs.
 
         Input: (batch, channel, height, width).
@@ -218,14 +220,14 @@ class Explainer(pl.LightningModule):
             masks = torch.ones(images.shape[0], 1, self.num_players, device=self.surrogate.device)
             images_masked = apply_masks(images, masks)  # (batch, channel, height, weight)
             logits = self.surrogate(images_masked)  # (batch, num_classes)
-            grand: torch.Tensor
+            grand: Tensor
             if self.hparams["use_softmax"]:
                 grand = torch.nn.Softmax(dim=1)(logits).to(self.device)  # (batch, num_classes)
             else:
                 grand = logits.to(self.device)
         return grand
 
-    def surrogate_multiple_masks(self, images: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
+    def surrogate_multiple_masks(self, images: Tensor, masks: Tensor) -> Tensor:
         """Get class probabilites from surrogate model, with multiple masks.
 
         Args:
@@ -243,14 +245,14 @@ class Explainer(pl.LightningModule):
             images, masks = images.to(self.surrogate.device), masks.to(self.surrogate.device)
             images_masked = apply_masks(images, masks)  # (B * num_mask_samples, C, H, W)
             logits = self.surrogate(images_masked)  # (B * num_mask_samples, num_classes)
-            surrogate_values: torch.Tensor
+            surrogate_values: Tensor
             if self.hparams["use_softmax"]:
                 surrogate_values = torch.nn.Softmax(dim=1)(logits)  # (B * num_mask_samples, num_classes)
             else:
                 surrogate_values = logits
         return surrogate_values.reshape(batch_size, num_masks_per_image, -1).to(self.device)
 
-    def backbone_forward_features(self, x: torch.Tensor) -> torch.Tensor:
+    def backbone_forward_features(self, x: Tensor) -> Tensor:
         """
         Same as self.backbone.forward_features but outputs num_players vectors instead of one.
 
@@ -283,10 +285,10 @@ class Explainer(pl.LightningModule):
 
     def forward(
         self,
-        images: torch.Tensor,
-        surrogate_grand: torch.Tensor | None = None,
-        surrogate_null: torch.Tensor | None = None, normalize: bool = True
-    ) -> torch.Tensor:
+        images: Tensor,
+        surrogate_grand: Tensor | None = None,
+        surrogate_null: Tensor | None = None, normalize: bool = True
+    ) -> Tensor:
         """
         Forward pass.
 
@@ -364,7 +366,7 @@ class Explainer(pl.LightningModule):
         if normalize and self.normalization_class:
             pred = self.normalization_class(pred=pred)
 
-        return cast(torch.Tensor, pred)
+        return cast(Tensor, pred)
 
     def training_step(self, batch, batch_idx):
         assert self.surrogate is not None

@@ -1,9 +1,13 @@
 import time
-import torch
+
 import scipy.special
+import torch
+from torch import Tensor
 from tqdm import tqdm
 
-from datasets.CIFAR_10_Dataset import PROJECT_ROOT, CIFAR_10_Datamodule, apply_masks
+from datasets.CIFAR_10_Dataset import CIFAR_10_Datamodule
+from utils import PROJECT_ROOT
+from vit_shapley.masks import apply_masks
 from vit_shapley.modules.surrogate import Surrogate
 
 
@@ -26,7 +30,7 @@ class BruteShap:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     @staticmethod
-    def get_all_masks(K: int) -> torch.Tensor:
+    def get_all_masks(K: int) -> Tensor:
         """
         Return all 0-1 masks as a tensor of shape (2**K, K), dtype bool.
 
@@ -41,10 +45,10 @@ class BruteShap:
             t = torch.int32
         bitmasks = torch.arange(2**K, dtype=t)
         which_bit = 2 ** torch.arange(K, dtype=t)
-        masks = torch.bitwise_and(bitmasks.unsqueeze(-1), which_bit.unsqueeze(0))
-        return masks.bool()
+        masks: Tensor = torch.bitwise_and(bitmasks.unsqueeze(-1), which_bit.unsqueeze(0)).bool()
+        return masks
 
-    def compute_model_on_masks(self, images: torch.Tensor, masks: torch.Tensor, compute_batch: int) -> torch.Tensor:
+    def compute_model_on_masks(self, images: Tensor, masks: Tensor, compute_batch: int) -> Tensor:
         """
         Compute values of the model for every image and every mask, return shape shape (N, 2**num_players, num_classes).
 
@@ -56,7 +60,7 @@ class BruteShap:
         num_images, C, H, W = images.shape
         num_masks, num_players = masks.shape
         assert C == 3
-        assert num_masks == 2 ** num_players
+        assert num_masks == 2**num_players
 
         num_masks_in_batch = compute_batch // num_images
         num_batches = (num_masks + num_masks_in_batch - 1) // num_masks_in_batch
@@ -82,7 +86,7 @@ class BruteShap:
 
         return torch.cat(all_values, dim=1)
 
-    def shap_values(self, images: torch.Tensor, num_players: int, compute_batch: int = 256) -> torch.Tensor:
+    def shap_values(self, images: Tensor, num_players: int, compute_batch: int = 256) -> Tensor:
         """
         Compute shapley values for the given images, return shape (N, num_players, num_classes).
 
@@ -99,10 +103,9 @@ class BruteShap:
         # (2**(num_players - 1), num_players - 1)
         mask_size = torch.sum(almost_all_masks.long(), dim=-1)
         # (2**(num_players - 1),)
-        coeffs = torch.Tensor([
-            scipy.special.binom(num_players - 1, mask_size[i].item())
-            for i in range(2 ** (num_players - 1))
-        ]).float()
+        coeffs = Tensor(
+            [scipy.special.binom(num_players - 1, mask_size[i].item()) for i in range(2 ** (num_players - 1))]
+        ).float()
         # (2**(num_players - 1),)
 
         shap_vs = torch.zeros(num_images, num_players, self.num_classes)

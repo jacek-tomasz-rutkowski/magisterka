@@ -4,13 +4,11 @@ import pytorch_lightning as pl
 import torch
 from pytorch_lightning.utilities.types import OptimizerLRSchedulerConfig
 from torch.nn import functional as F
-from transformers import get_cosine_schedule_with_warmup
-# from transformers.optimization import AdamW
 from torch.optim import AdamW
 from tqdm import tqdm
+from transformers import get_cosine_schedule_with_warmup
 
-from datasets.CIFAR_10_Dataset import apply_masks_to_batch
-from vit_shapley.masks import make_masks_from_player_values, get_distances_from_center
+from vit_shapley.masks import apply_masks_to_batch, get_distances_from_center, make_masks_from_player_values
 
 
 def set_schedule(pl_module: pl.LightningModule) -> OptimizerLRSchedulerConfig:
