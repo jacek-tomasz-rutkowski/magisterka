@@ -6,7 +6,7 @@
 * Uruchomienie jobu: `JOB_ID=$(sbatch job-classifier.sh | awk '{print $NF}')` (ustawiamy w `job-classifier.sh` time limit, konfigurację w `classifier.yaml`).
 * Oglądanie outputu na bieżąco: `tail --follow checkpoints/*/s$JOB_ID/stdout`
 * Oglądanie wykresów: `tensorboard --logdir=checkpoints/ --port=6056`
-* Oglądanie statusu GPU: `srun --jobid $JOB_ID nvidia-smi`
+* Oglądanie statusu GPU: `srun --jobid $JOB_ID nvidia-smi` (działa tylko jeśli mamy dostęp do dodatkowych zasobów w kolejce).
 * Ubijanie jobu: `scancel --me --signal=SIGINT $JOB_ID`
 * Anulowanie czekających na alokację job'ów `scancel --me -t PENDING`
 * Działające joby: `squeue --me`

@@ -1,13 +1,13 @@
 model:
-  # backbone: vit_small_patch16_224.augreg_in1k
-  backbone: swin_tiny_patch4_window7_224.ms_in1k
+  backbone: vit_small_patch16_224.augreg_in1k
+  # backbone: swin_tiny_patch4_window7_224.ms_in1k
   target_model:
     class_path: __main__.ClassifierFromLatestCheckpoint
     init_args:
-      path: saved_models/classifier/gastro/v4/swin_tiny_patch4_window7_224/
+      # path: saved_models/classifier/cifar10/v4/vit_small_patch16_224/
+      path: saved_models/classifier/gastro/v4/vit_small_patch16_224/
       # path: saved_models/classifier/cifar10/v4/swin_tiny_patch4_window7_224/
-      # path: saved_models/classifier/gastro/v4/vit_small_patch16_224.augreg_in1k/
-      # path: saved_models/classifier/cifar10/v4/vit_small_patch16_224.augreg_in1k/
+      # path: saved_models/classifier/gastro/v4/swin_tiny_patch4_window7_224/
   optimizer_kwargs:
     opt: sgd
     lr: 0.001

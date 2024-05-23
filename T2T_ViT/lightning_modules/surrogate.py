@@ -1,5 +1,5 @@
 from dataclasses import asdict, dataclass
-from typing import Any, Literal, TypedDict, cast
+from typing import Any, Literal, cast
 
 import lightning as L
 import timm
@@ -10,26 +10,20 @@ from lightning.pytorch.cli import LightningArgumentParser
 from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
 from torch import Tensor
 from torch.nn import functional as F
-from torchvision import tv_tensors
 
-from lightning_modules.classifier import CIFAR10DataModule, Classifier, GastroDataModule  # noqa: F401
+from lightning_modules.classifier import CIFAR10DataModule, Classifier, GastroDataModule
 from lightning_modules.cli import lightning_main
 from lightning_modules.common import (
     BaseDataModule,
     DataLoaderKwargs,
     ImageLabelDataitem,
+    ImageLabelMaskBatch,
     ImageLabelMaskDataitem,
     TimmModel,
     TransformedDataset,
     get_head_and_backbone_parameters,
 )
 from vit_shapley.masks import apply_masks_to_batch, generate_masks
-
-
-class ImageLabelMaskBatch(TypedDict):
-    image: tv_tensors.Image  # Shape BCHW, dtype float32.
-    label: Tensor  # Shape B, dtype int64.
-    mask: Tensor  # Shape (B, num_players), dtype bool.
 
 
 class Surrogate(L.LightningModule):
@@ -73,9 +67,6 @@ class Surrogate(L.LightningModule):
         """
         # We need to be compatible with the extended API where a 'destination' dict-like may be given,
         # and we need to update it (we can't make a copy).
-        # TODO check, was:
-        #   destination = super().state_dict(*args, **kwargs).items()
-        #   for k, _v in destination:
         destination = super().state_dict(*args, **kwargs)
         for k in list(destination.keys()):
             if k.startswith("target_model."):
@@ -236,6 +227,6 @@ if __name__ == "__main__":
             "batch": config.data.dataloader_kwargs["batch_size"],
             "acc": config.trainer.accumulate_grad_batches,
         },
-        checkpoint_filename_pattern="epoch={epoch:0>3}_val-acc={val/accuracy:.3f}",
+        checkpoint_filename_pattern="epoch={epoch:0>3}_val-acc={val/accuracy:.3f}_unmasked={val/acc-unmasked:.3f}",
         model_summary_depth=2,
     )

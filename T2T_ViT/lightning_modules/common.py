@@ -22,6 +22,10 @@ class ImageLabelMaskDataitem(ImageLabelDataitem):
     mask: torch.Tensor  # Shape (num_players,), dtype bool.
 
 
+class ImageLabelMaskBatch(ImageLabelBatch):
+    mask: Tensor  # Shape (B, num_players), dtype bool.
+
+
 S_co = TypeVar("S_co", covariant=True)
 T_co = TypeVar("T_co", covariant=True)
 
