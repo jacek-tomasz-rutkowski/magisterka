@@ -31,11 +31,16 @@ T_co = TypeVar("T_co", covariant=True)
 
 
 class SizedDataset(torch.utils.data.Dataset[T_co], Sized):
+    """A dataset that supports `len()`."""
     pass
 
 
 class TransformedDataset(SizedDataset[T_co]):
-    """Applies a transform to dataitems produced by any dataset."""
+    """
+    Applies a transform to dataitems produced by any dataset.
+
+    This is useful e.g. for datasets that don't allow transforming the whole dataitems, just images.
+    """
 
     def __init__(self, dataset: SizedDataset[S_co] | Sequence[S_co], transform: Callable[[S_co], T_co]):
         self.dataset = dataset
@@ -52,7 +57,7 @@ def get_head_and_backbone_parameters(
     model: torch.nn.Module, head: torch.nn.Module
 ) -> tuple[Iterable[torch.nn.Parameter], Iterable[torch.nn.Parameter]]:
     """Get the parameters (disjoint) of the head and the backbone of a model."""
-    head_parameters = head.parameters()
+    head_parameters = list(head.parameters())
     head_parameter_ids = set(id(p) for p in head_parameters)
     backbone_parameters = [p for p in model.parameters() if id(p) not in head_parameter_ids]
     return head_parameters, backbone_parameters

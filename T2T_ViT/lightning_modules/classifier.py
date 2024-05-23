@@ -34,6 +34,23 @@ from utils import PROJECT_ROOT, find_latest_checkpoint, random_split_sequence
 
 
 class Classifier(L.LightningModule):
+    """
+    LightningModule for training a classifier by transfer learning.
+
+    Args:
+    - backbone: The name of the timm model to use.
+    - num_classes: The number of classes in the dataset.
+    - optimizer_kwargs: passed to timm.optim.create_optimizer_v2(), except lr_head is used as lr for the head.
+        Common/default args are opt='sgd' (or e.g. 'adamw'), lr=None (?), weight_decay=0, momentum=0.9.
+        See: https://huggingface.co/docs/timm/reference/optimizers#timm.optim.create_optimizer_v2
+        Note sgd means SGD with Nesterov momentum in timm (use "momentum" to disable Nesterov).
+    - scheduler_kwargs: passed to timm.scheduler.create_scheduler_v2()
+        Common/default args are sched='cosine (or e.g. ...), num_epochs=300, decay_epochs=90,
+            decay_milestones=[90, 180, 270], cooldown_epoch=0, patience_epochs=10, decay_rate=0.1,
+            min_lr=0, warmup_lr=1e-05, warmup_epochs=0.
+        See: https://huggingface.co/docs/timm/reference/schedulers#timm.scheduler.create_scheduler_v2
+    """
+
     def __init__(
         self,
         backbone: str,
@@ -42,26 +59,15 @@ class Classifier(L.LightningModule):
         scheduler_kwargs: dict[str, Any] = dict(),
         scriptable: bool = False,
     ):
-        """
-        Args:
-        - backbone: The name of the timm model to use.
-        - num_classes: The number of classes in the dataset.
-        - optimizer_kwargs: passed to timm.optim.create_optimizer_v2()
-            Common/default args are opt='sgd' (or e.g. 'adamw'), lr=None (?), weight_decay=0, momentum=0.9.
-            See: https://huggingface.co/docs/timm/reference/optimizers#timm.optim.create_optimizer_v2
-            Note sgd means SGD with Nesterov momentum in timm (use "momentum" to disable Nesterov).
-        - scheduler_kwargs: passed to timm.scheduler.create_scheduler_v2()
-            Common/default args are sched='cosine (or e.g. ...), num_epochs=300, decay_epochs=90,
-                decay_milestones=[90, 180, 270], cooldown_epoch=0, patience_epochs=10, decay_rate=0.1,
-                min_lr=0, warmup_lr=1e-05, warmup_epochs=0.
-            See: https://huggingface.co/docs/timm/reference/schedulers#timm.scheduler.create_scheduler_v2
-        """
         super().__init__()
         self.save_hyperparameters()
         self.model = cast(TimmModel, timm.create_model(backbone, pretrained=True, scriptable=scriptable))
+        self.model.reset_classifier(num_classes=num_classes)
+
+        # Print some info about how the model was pretrained,
+        # if this differs from what we use it may be better to change our transformations to match.
         for k in ["input_size", "interpolation", "mean", "std"]:
             print(f"\t{k}:\t{self.model.pretrained_cfg[k]}")
-        self.model.reset_classifier(num_classes=num_classes)
 
         if scriptable:
             self.model = torch.jit.script(self.model)
@@ -85,11 +91,14 @@ class Classifier(L.LightningModule):
     def _common_step(self, batch: ImageLabelBatch, batch_idx: int, phase: str) -> Tensor:
         images, labels = batch["image"], batch["label"]
         batch_size = len(images)
+
         logits = self.forward(images)
         loss = cast(Tensor, torch.nn.CrossEntropyLoss()(logits, labels))
         accuracy = (logits.argmax(dim=-1) == labels).float().mean()
-        self.log(f"{phase}/accuracy", accuracy, prog_bar=True, batch_size=batch_size)
+
         self.log(f"{phase}/loss", loss, prog_bar=True, batch_size=batch_size)
+        self.log(f"{phase}/accuracy", accuracy, prog_bar=True, batch_size=batch_size)
+
         return loss
 
     def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
@@ -116,6 +125,7 @@ class Classifier(L.LightningModule):
 
     @classmethod
     def load_from_latest_checkpoint(cls, path: Path, map_location: Any = None, strict: bool = True) -> "Classifier":
+        """Load the latest checkpoint found under a given path (directories are search recursively)."""
         return cast(
             Classifier, cls.load_from_checkpoint(find_latest_checkpoint(path), map_location=map_location, strict=strict)
         )
@@ -123,7 +133,10 @@ class Classifier(L.LightningModule):
 
 class GastroDataModule(BaseDataModule[GastroDataitem]):
     """
+    Lightning DataModule for training a classifier on the Gastro dataset.
+
     Args:
+    - root: directory containing "gastro-hyper-kvasir/".
     - dataloader_kwargs: passed to DataLoader, like batch_size=1, num_workers=0, pin_memory=False.
     """
 
@@ -150,28 +163,18 @@ class GastroDataModule(BaseDataModule[GastroDataitem]):
 
 
 class CIFAR10DataModule(BaseDataModule[ImageLabelDataitem]):
+    """
+    Lightning DataModule for training a classifier on the CIFAR10 dataset.
+
+    Args:
+    - root: directory containing "cifar-10-batches-py/".
+    - dataloader_kwargs: passed to DataLoader, like batch_size=1, num_workers=0, pin_memory=False.
+    """
     num_classes: int = 10
 
     def __init__(self, root: Path = PROJECT_ROOT / "data", *, dataloader_kwargs: DataLoaderKwargs = {}):
-        """
-        Args:
-        - dataloader_kwargs: passed to torch.utils.data.DataLoader().
-            Common/default args are batch_size=1, num_workers=0, pin_memory=False.
-        """
         super().__init__(dataloader_kwargs)
         self.root = root
-        self.target_size = 224
-        self.eval_transform = default_transform(self.target_size)
-        self.train_transform = v2.Compose(
-            [
-                v2.RandomRotation(10),
-                v2.RandomResizedCrop(self.target_size, scale=(0.8, 1.0), ratio=(3.0 / 4.0, 4.0 / 3.0), antialias=True),
-                v2.RandomHorizontalFlip(),
-                v2.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
-                v2.ToDtype(torch.float32, scale=True),
-                v2.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
-            ]
-        )
 
     def prepare_data(self) -> None:
         download = False
@@ -180,14 +183,29 @@ class CIFAR10DataModule(BaseDataModule[ImageLabelDataitem]):
 
     def setup(self, stage: str) -> None:
         assert stage in ["fit", "validate", "test", "predict"]
+
+        target_size = 224
+        val_transform = default_transform(target_size)
+        train_transform = v2.Compose(
+            [
+                v2.RandomRotation(10),
+                v2.RandomResizedCrop(target_size, scale=(0.8, 1.0), ratio=(3.0 / 4.0, 4.0 / 3.0), antialias=True),
+                v2.RandomHorizontalFlip(),
+                v2.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
+                v2.ToDtype(torch.float32, scale=True),
+                v2.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
+            ]
+        )
+
         if stage == "fit":
-            self.train_dataset = self._dataset(train=True, transform=self.train_transform)
+            self.train_dataset = self._dataset(train=True, transform=train_transform)
         if stage == "fit" or stage == "validate":
-            self.val_dataset = self._dataset(train=False, transform=self.eval_transform)
+            self.val_dataset = self._dataset(train=False, transform=val_transform)
         if stage == "test":
-            self.test_dataset = self._dataset(train=False, transform=self.eval_transform)
+            self.test_dataset = self._dataset(train=False, transform=val_transform)
 
     def _dataset(self, train: bool, transform: v2.Transform) -> SizedDataset[ImageLabelDataitem]:
+        """Make a CIFAR10Dataset that yields ImageLabelDataitem-s."""
         return TransformedDataset(
             torchvision.datasets.CIFAR10(root=self.root, train=train, download=False),
             transform=lambda tpl: transform(ImageLabelDataitem(image=v2.functional.to_image(tpl[0]), label=tpl[1])),
@@ -197,9 +215,9 @@ class CIFAR10DataModule(BaseDataModule[ImageLabelDataitem]):
 if __name__ == "__main__":
     lightning_main(
         Classifier,
-        # (CIFAR10DataModule, GastroDataModule),
         experiment_name="classifier",
         monitor="val/loss",
+        # Set model.num_classes automatically from data config.
         parser_callback=lambda parser: parser.link_arguments(
             "data.num_classes", "model.num_classes", apply_on="instantiate"
         ),

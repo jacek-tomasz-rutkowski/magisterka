@@ -66,12 +66,20 @@ def lightning_main(
     version: str
     if slurm_job_id:
         version = f"s{slurm_job_id}"
+        # If the version already exists, either this is a continuation,
+        # or this is another training within the same slurm job (scripted or in an interactive bash session).
+        # In any case, we add a subversion counter.
+        subversion = ""
+        while (checkpoints_dir / experiment_name / (version + subversion) / "hparams.yaml").exists():
+            subversion = "." + str(int(subversion[1:] or 1) + 1)
+        version = version + subversion
     else:
         # If not running with slurm, set the version to the next available number, prefixed with "v" instead of "s".
         versions = [int(p.name[1:]) for p in (checkpoints_dir / experiment_name).iterdir() if p.name.startswith("v")]
         version = f"v{max(versions, default=0) + 1}"
     print(str(checkpoints_dir / experiment_name / version))
 
+    # Setup the callback to write the config.yaml file next to hparams.yaml.
     save_config_callback = partial(_LoggerSaveConfigCallback, main_config_callback=main_config_callback)
 
     _MyLightningCLI(
