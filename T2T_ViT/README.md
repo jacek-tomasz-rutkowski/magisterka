@@ -1,11 +1,16 @@
 ## Setup środowiska
-* Instalujemy conda'ę, najlepiej z [conda-forge](https://conda-forge.org/download/)
+* Instalujemy conda'ę (można lokalnie tylko dla własnego użytkownika), najlepiej z [conda-forge](https://conda-forge.org/download/)
 * Instalujemy środowisko `CONDA_OVERRIDE_CUDA=12.2 conda env create -f environment.yml -p ./condaenv`
+* Aktywujemy `conda activate ścieżka/do/condaenv`.
+
+## Trenowanie
+* Jeśli mamy wiele kart do wyboru (`nvidia-smi` je pokaże) to wybieramy np. jedną dopisując przed komendą `CUDA_VISIBLE_DEVICES=0 python ...`.
+* Transfer learning: modyfikujemy `lightning_configs/classifier.yaml` i uruchamiamy `python -m lightning_modules.classifier fit --config lightning_configs/classifier.yaml`
+* Oglądanie wykresów: `tensorboard --logdir=checkpoints/ --port=6056`
 
 ## SLURM
 * Uruchomienie jobu: `JOB_ID=$(sbatch job-classifier.sh | awk '{print $NF}')` (ustawiamy w `job-classifier.sh` time limit, konfigurację w `classifier.yaml`).
 * Oglądanie outputu na bieżąco: `tail --follow checkpoints/*/s$JOB_ID/stdout`
-* Oglądanie wykresów: `tensorboard --logdir=checkpoints/ --port=6056`
 * Oglądanie statusu GPU: `srun --jobid $JOB_ID nvidia-smi` (działa tylko jeśli mamy dostęp do dodatkowych zasobów w kolejce).
 * Ubijanie jobu: `scancel --me --signal=SIGINT $JOB_ID`
 * Anulowanie czekających na alokację job'ów `scancel --me -t PENDING`

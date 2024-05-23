@@ -54,6 +54,8 @@ seed_everything: 2
 # - swinv2_cr_tiny_ns_224.sw_in1k                , model size: 106.2 MiB parameters: 26.3 M
 # - swin_s3_tiny_224.ms_in1k                     , model size: 107.8 MiB parameters: 26.3 M
 # - resnet50.d_in1k                          , model size:  90.0 MiB parameters: 22.4 M
+# See also for results on imagenet:
+#   https://github.com/huggingface/pytorch-image-models/blob/main/results/results-imagenetv2-matched-frequency.csv
 
 # Originally:
 # - t2t_vit (t2t_vit_14),  model size: 80.7 MiB parameters: 20.2 M
