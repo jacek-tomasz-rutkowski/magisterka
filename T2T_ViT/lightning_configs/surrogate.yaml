@@ -4,8 +4,8 @@ model:
   target_model:
     class_path: __main__.ClassifierFromLatestCheckpoint
     init_args:
-      # path: saved_models/classifier/cifar10/v4/vit_small_patch16_224/
-      path: saved_models/classifier/gastro/v4/vit_small_patch16_224/
+      path: saved_models/classifier/cifar10/v4/vit_small_patch16_224/
+      # path: saved_models/classifier/gastro/v4/vit_small_patch16_224/
       # path: saved_models/classifier/cifar10/v4/swin_tiny_patch4_window7_224/
       # path: saved_models/classifier/gastro/v4/swin_tiny_patch4_window7_224/
   optimizer_kwargs:
@@ -21,8 +21,8 @@ model:
 
 data:
   wrapped_datamodule:
-    # class_path: CIFAR10DataModule
-    class_path: GastroDataModule
+    class_path: CIFAR10DataModule
+    # class_path: GastroDataModule
   generate_masks_kwargs:
     num_players: 16
     num_mask_samples: 2

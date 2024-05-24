@@ -1,5 +1,5 @@
-from dataclasses import asdict, dataclass
-from typing import Any, Literal, cast
+from pathlib import Path
+from typing import Any, cast
 
 import lightning as L
 import timm
@@ -11,19 +11,17 @@ from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
 from torch import Tensor
 from torch.nn import functional as F
 
-from lightning_modules.classifier import CIFAR10DataModule, Classifier, GastroDataModule
-from lightning_modules.cli import lightning_main
-from lightning_modules.common import (
-    BaseDataModule,
-    DataLoaderKwargs,
-    ImageLabelDataitem,
-    ImageLabelMaskBatch,
-    ImageLabelMaskDataitem,
-    TimmModel,
-    TransformedDataset,
-    get_head_and_backbone_parameters,
+from datasets.types import ImageLabelMaskBatch
+from datasets.datamodules import (  # noqa: F401
+    CIFAR10DataModule,
+    DataModuleWithMasks,
+    GastroDataModule
 )
-from vit_shapley.masks import apply_masks_to_batch, generate_masks
+from lightning_modules.classifier import Classifier
+from lightning_modules.cli import lightning_main
+from lightning_modules.common import TimmModel, get_head_and_backbone_parameters
+from vit_shapley.masks import apply_masks_to_batch
+from utils import find_latest_checkpoint
 
 
 class Surrogate(L.LightningModule):
@@ -51,6 +49,7 @@ class Surrogate(L.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["target_model"])
+        self.num_players = num_players
         self.target_model = target_model
         if self.target_model:
             self.target_model.eval()
@@ -165,61 +164,12 @@ class Surrogate(L.LightningModule):
             for k, v in self.target_model.state_dict().items():
                 checkpoint["state_dict"]["target_model." + k] = v
 
-
-@dataclass
-class GenerateMasksKwargs:  # TypedDicts are not supported by jsonargparse<=4.28.0
-    num_players: int
-    num_mask_samples: int
-    paired_mask_samples: bool
-    mode: Literal["uniform", "shapley"]
-
-
-class DataModuleWithMasks(BaseDataModule[ImageLabelMaskDataitem]):
-    """
-    Lightning DataModule for training a Surrogate model.
-
-    Args:
-    - wrapped_datamodule: the classifier CIFAR10DataModule or GastroDataModule.
-    - generate_masks_kwargs: passed to vit_shapley.masks.generate_masks(),
-        like num_players=16, num_mask_samples=2, paired_mask_samples=True, mode="shapley".
-        This is only used for training; for validation and testing these are fixed to make scores comparable.
-    - dataloader_kwargs: passed to DataLoader, like batch_size=1, num_workers=0, pin_memory=False.
-    """
-    def __init__(
-        self,
-        wrapped_datamodule: CIFAR10DataModule | GastroDataModule,
-        generate_masks_kwargs: GenerateMasksKwargs,
-        dataloader_kwargs: DataLoaderKwargs,
-    ):
-        super().__init__(dataloader_kwargs=dataloader_kwargs)
-        self.wrapped_datamodule = wrapped_datamodule
-        self.num_classes = self.wrapped_datamodule.num_classes
-        self.generate_masks_kwargs_train = generate_masks_kwargs
-        # Keep mask generation for validation and testing fixed, to make scores comparable.
-        self.generate_masks_kwargs_val = GenerateMasksKwargs(
-            num_players=generate_masks_kwargs.num_players,
-            num_mask_samples=2,
-            paired_mask_samples=True,
-            mode="uniform",
+    @classmethod
+    def load_from_latest_checkpoint(cls, path: Path, map_location: Any = None, strict: bool = True) -> "Surrogate":
+        """Load the latest checkpoint found under a given path (directories are search recursively)."""
+        return cast(
+            Surrogate, cls.load_from_checkpoint(find_latest_checkpoint(path), map_location=map_location, strict=strict)
         )
-
-    def prepare_data(self) -> None:
-        self.wrapped_datamodule.prepare_data()
-
-    def setup(self, stage: str) -> None:
-        self.wrapped_datamodule.setup(stage)
-        if stage == "fit":
-            self.train_dataset = TransformedDataset(self.wrapped_datamodule.train_dataset, self.add_random_masks_train)
-        if stage == "fit" or stage == "validate":
-            self.val_dataset = TransformedDataset(self.wrapped_datamodule.val_dataset, self.add_random_masks_val)
-        if stage == "test":
-            self.test_dataset = TransformedDataset(self.wrapped_datamodule.test_dataset, self.add_random_masks_val)
-
-    def add_random_masks_train(self, dataitem: ImageLabelDataitem) -> ImageLabelMaskDataitem:
-        return {**dataitem, "mask": Tensor(generate_masks(**asdict(self.generate_masks_kwargs_train)))}
-
-    def add_random_masks_val(self, dataitem: ImageLabelDataitem) -> ImageLabelMaskDataitem:
-        return {**dataitem, "mask": Tensor(generate_masks(**asdict(self.generate_masks_kwargs_val)))}
 
 
 # This allows calling Classifier.load_from_latest_checkpoint() from config files.

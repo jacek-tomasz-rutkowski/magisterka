@@ -1,0 +1,53 @@
+model:
+  surrogate:
+    class_path: __main__.SurrogateFromLatestCheckpoint
+    init_args:
+      # path: saved_models/surrogate/cifar10/v4/vit_small_patch16_224/
+      path: saved_models/surrogate/gastro/v4/vit_small_patch16_224/
+      # path: saved_models/surrogate/cifar10/v4/swin_tiny_patch4_window7_224/
+      # path: saved_models/surrogate/gastro/v4/swin_tiny_patch4_window7_224/
+    # You could also use class_path: __main__.ClassifierFromLatestCheckpoint
+  backbone: copy_surrogate
+  # backbone: vit_small_patch16_224.augreg_in1k
+  # backbone: swin_tiny_patch4_window7_224.ms_in1k
+  freeze_backbone: none
+
+  head_num_convolutions: 1
+  head_num_attention_blocks: 0
+  head_mlp_layer_ratio: 4
+  use_tanh: false
+  use_softmax: false
+  divisor: 4
+  efficiency_lambda: 0
+  target_class_lambda: 0
+
+  optimizer_kwargs:
+    opt: sgd  # adamw
+    lr: 1e-4
+    lr_head: 0.01
+    weight_decay: 5e-4
+    momentum: 0.9
+  scheduler_kwargs:
+    sched: cosine
+    warmup_epochs: 1
+    min_lr: 1e-5
+
+data:
+  wrapped_datamodule:
+    # class_path: CIFAR10DataModule
+    class_path: GastroDataModule
+  generate_masks_kwargs:
+    num_players: 16
+    num_mask_samples: 2
+    paired_mask_samples: true
+    mode: shapley
+  dataloader_kwargs:
+    batch_size: 48
+    num_workers: 2
+    pin_memory: true
+
+trainer:
+  max_epochs: 250
+  accumulate_grad_batches: 4
+
+seed_everything: 2

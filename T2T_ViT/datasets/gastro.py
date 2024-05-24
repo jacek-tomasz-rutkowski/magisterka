@@ -22,7 +22,7 @@ from torchvision.io import ImageReadMode
 from torchvision.transforms import v2
 
 from datasets.transforms import Erase, default_transform
-from lightning_modules.common import ImageLabelBatch, ImageLabelDataitem
+from datasets.types import ImageLabelBatch, ImageLabelDataitem
 
 PROJECT_ROOT = Path(__file__).parent.parent  # Path to the T2T_ViT/ directory.
 

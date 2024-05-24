@@ -22,10 +22,10 @@ data:
       pin_memory: true
 
 trainer:
-  max_epochs: 250  # ~350 and ~3h for Gastro, ~20 for CIFAR10
+  max_epochs: 40  # ~350 and ~3h for Gastro, ~20 for CIFAR10
   accumulate_grad_batches: 1
 
-seed_everything: 2
+seed_everything: 3
 
 # As a backbone:
 # - swin_tiny_patch4_window7_224.ms_in1k     , model size: 106.1 MiB parameters: 26.3 M

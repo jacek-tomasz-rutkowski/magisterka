@@ -9,28 +9,14 @@ import timm.scheduler.scheduler
 import torch
 import torch.nn
 import torch.utils.data
-import torchvision.datasets
 from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
-from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from torch import Tensor
-from torch.utils.data import Subset
-from torchvision.transforms import v2
 
-
-from datasets.gastro import GastroDataitem, GastroDataset
-from datasets.transforms import default_transform
+from datasets.types import ImageLabelBatch
+from datasets.datamodules import CIFAR10DataModule, GastroDataModule  # noqa: F401
 from lightning_modules.cli import lightning_main
-from lightning_modules.common import (
-    BaseDataModule,
-    DataLoaderKwargs,
-    ImageLabelBatch,
-    ImageLabelDataitem,
-    SizedDataset,
-    TimmModel,
-    TransformedDataset,
-    get_head_and_backbone_parameters,
-)
-from utils import PROJECT_ROOT, find_latest_checkpoint, random_split_sequence
+from lightning_modules.common import TimmModel, get_head_and_backbone_parameters
+from utils import find_latest_checkpoint
 
 
 class Classifier(L.LightningModule):
@@ -131,87 +117,6 @@ class Classifier(L.LightningModule):
         )
 
 
-class GastroDataModule(BaseDataModule[GastroDataitem]):
-    """
-    Lightning DataModule for training a classifier on the Gastro dataset.
-
-    Args:
-    - root: directory containing "gastro-hyper-kvasir/".
-    - dataloader_kwargs: passed to DataLoader, like batch_size=1, num_workers=0, pin_memory=False.
-    """
-
-    num_classes: int = 2
-
-    def __init__(self, root: Path = PROJECT_ROOT / "data", *, dataloader_kwargs: DataLoaderKwargs = {}):
-        super().__init__(dataloader_kwargs)
-        self.root = root
-
-    def prepare_data(self) -> None:
-        GastroDataset(self.root)
-
-    def setup(self, stage: str) -> None:
-        assert stage in ["fit", "validate", "test", "predict"]
-        generator = torch.Generator().manual_seed(42)  # Fix a train-val split.
-        train_ids, val_ids = random_split_sequence(range(len(GastroDataset(self.root))), [0.7, 0.3], generator)
-
-        train_transform = GastroDataset.default_train_transform()
-        val_transform = GastroDataset.default_transform()
-
-        self.train_dataset = Subset(GastroDataset(self.root, train_transform), train_ids)  # type: ignore
-        self.val_dataset = Subset(GastroDataset(self.root, val_transform), val_ids)  # type: ignore
-        self.test_dataset = self.val_dataset
-
-
-class CIFAR10DataModule(BaseDataModule[ImageLabelDataitem]):
-    """
-    Lightning DataModule for training a classifier on the CIFAR10 dataset.
-
-    Args:
-    - root: directory containing "cifar-10-batches-py/".
-    - dataloader_kwargs: passed to DataLoader, like batch_size=1, num_workers=0, pin_memory=False.
-    """
-    num_classes: int = 10
-
-    def __init__(self, root: Path = PROJECT_ROOT / "data", *, dataloader_kwargs: DataLoaderKwargs = {}):
-        super().__init__(dataloader_kwargs)
-        self.root = root
-
-    def prepare_data(self) -> None:
-        download = False
-        torchvision.datasets.CIFAR10(root=self.root, train=True, download=download)
-        torchvision.datasets.CIFAR10(root=self.root, train=False, download=download)
-
-    def setup(self, stage: str) -> None:
-        assert stage in ["fit", "validate", "test", "predict"]
-
-        target_size = 224
-        val_transform = default_transform(target_size)
-        train_transform = v2.Compose(
-            [
-                v2.RandomRotation(10),
-                v2.RandomResizedCrop(target_size, scale=(0.8, 1.0), ratio=(3.0 / 4.0, 4.0 / 3.0), antialias=True),
-                v2.RandomHorizontalFlip(),
-                v2.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
-                v2.ToDtype(torch.float32, scale=True),
-                v2.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
-            ]
-        )
-
-        if stage == "fit":
-            self.train_dataset = self._dataset(train=True, transform=train_transform)
-        if stage == "fit" or stage == "validate":
-            self.val_dataset = self._dataset(train=False, transform=val_transform)
-        if stage == "test":
-            self.test_dataset = self._dataset(train=False, transform=val_transform)
-
-    def _dataset(self, train: bool, transform: v2.Transform) -> SizedDataset[ImageLabelDataitem]:
-        """Make a CIFAR10Dataset that yields ImageLabelDataitem-s."""
-        return TransformedDataset(
-            torchvision.datasets.CIFAR10(root=self.root, train=train, download=False),
-            transform=lambda tpl: transform(ImageLabelDataitem(image=v2.functional.to_image(tpl[0]), label=tpl[1])),
-        )
-
-
 if __name__ == "__main__":
     lightning_main(
         Classifier,
@@ -222,7 +127,7 @@ if __name__ == "__main__":
             "data.num_classes", "model.num_classes", apply_on="instantiate"
         ),
         main_config_callback=lambda config: {
-            "dataset": config.data.class_path.split(".")[-1].removesuffix("DataModule"),
+            "datamodule": config.data.class_path.split(".")[-1].removesuffix("DataModule"),
             "backbone": config.model.backbone.split(".")[0],
             "lr": config.model.optimizer_kwargs["lr"],
             "lr_head": config.model.optimizer_kwargs.get("lr_head"),
