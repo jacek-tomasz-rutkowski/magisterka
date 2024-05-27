@@ -299,6 +299,8 @@ class Explainer(L.LightningModule):
         # Masks have shape: (batch, num_masks_per_image, num_players).
         # Labels have shape: (batch,).
         images, masks, labels = batch["image"], batch["mask"], batch["label"]
+        batch_size, num_masks_per_image, _ = masks.shape
+        bm = batch_size * num_masks_per_image
 
         # Run surrogate on masked, unmasked and fully masked inputs.
         surrogate_values = self.surrogate_multiple_masks(images, masks)  # (batch, num_masks_per_image, num_classes)
@@ -364,54 +366,54 @@ class Explainer(L.LightningModule):
 
         # Root Mean Square Error in values per player:
         rmse_diff = F.mse_loss(values_pred, surrogate_values).sqrt()
-        self.log(f"{phase}/v_rmse", rmse_diff, prog_bar=True)
+        self.log(f"{phase}/v_rmse", rmse_diff, prog_bar=True, batch_size=bm)
         rmse_diff_baseline = F.mse_loss(values_baseline, surrogate_values).sqrt()
-        self.log(f"{phase}/v_rmse_base", rmse_diff_baseline, prog_bar=True)
+        self.log(f"{phase}/v_rmse_base", rmse_diff_baseline, prog_bar=True, batch_size=bm)
         # Mean Absolute Error in values per player:
         mae_diff = F.l1_loss(values_pred, surrogate_values)
-        self.log(f"{phase}/v_mae", mae_diff, prog_bar=False)
+        self.log(f"{phase}/v_mae", mae_diff, prog_bar=False, batch_size=bm)
         mae_diff_baseline = F.l1_loss(values_baseline, surrogate_values)
-        self.log(f"{phase}/v_mae_base", mae_diff_baseline, prog_bar=False)
+        self.log(f"{phase}/v_mae_base", mae_diff_baseline, prog_bar=False, batch_size=bm)
 
         # Same but only on target class
         rmse_diff = F.mse_loss(t_values_pred, t_surrogate_values).sqrt()
-        self.log(f"{phase}/vt_rmse", rmse_diff, prog_bar=False)
+        self.log(f"{phase}/vt_rmse", rmse_diff, prog_bar=False, batch_size=bm)
         rmse_diff_baseline = F.mse_loss(t_values_baseline, t_surrogate_values).sqrt()
-        self.log(f"{phase}/vt_rmse_base", rmse_diff_baseline, prog_bar=False)
+        self.log(f"{phase}/vt_rmse_base", rmse_diff_baseline, prog_bar=False, batch_size=bm)
         mae_diff = F.l1_loss(t_values_pred, t_surrogate_values)
-        self.log(f"{phase}/vt_mae", mae_diff, prog_bar=False)
+        self.log(f"{phase}/vt_mae", mae_diff, prog_bar=False, batch_size=bm)
         mae_diff_baseline = F.l1_loss(t_values_baseline, t_surrogate_values)
-        self.log(f"{phase}/vt_mae_base", mae_diff_baseline, prog_bar=False)
+        self.log(f"{phase}/vt_mae_base", mae_diff_baseline, prog_bar=False, batch_size=bm)
 
         # "Efficiency", or gaps between the explainer's sum of SHAP values and what they should be.
         self.log(f"{phase}/eff", efficiency_gap, prog_bar=False)
-        self.log(f"{phase}/eff_class", efficiency_class_gap, prog_bar=False)
+        self.log(f"{phase}/eff_class", efficiency_class_gap, prog_bar=False, batch_size=bm)
 
         # Mean value predicted for target class.
         # This is exactly (grand-null) / 2, slightly smaller than 1.1 / 2 = 0.55.
-        self.log(f"{phase}/vt_mean", t_values_pred.mean(), prog_bar=False)
+        self.log(f"{phase}/vt_mean", t_values_pred.mean(), prog_bar=False, batch_size=bm)
         # Actual surrogate output value for target class.
         # This is ~0.9 if surrogate works well on masked inputs.
-        self.log(f"{phase}/vt_mean_target", t_surrogate_values.mean(), prog_bar=False)
+        self.log(f"{phase}/vt_mean_target", t_surrogate_values.mean(), prog_bar=False, batch_size=bm)
 
         # Minimum, maximum, and span of explainer SHAP values for the target class.
         t_shap_min = t_shap_values.min(dim=1).values.mean()
         t_shap_max = t_shap_values.max(dim=1).values.mean()
-        self.log(f"{phase}/t_shap_min", t_shap_min, prog_bar=False)
-        self.log(f"{phase}/t_shap_max", t_shap_max, prog_bar=False)
+        self.log(f"{phase}/t_shap_min", t_shap_min, prog_bar=False, batch_size=bm)
+        self.log(f"{phase}/t_shap_max", t_shap_max, prog_bar=False, batch_size=bm)
         # Should be as large as possible, 0.9 / num_players is OK-ish.
-        self.log(f"{phase}/t_shap_span", t_shap_max - t_shap_min, prog_bar=True)
+        self.log(f"{phase}/t_shap_span", t_shap_max - t_shap_min, prog_bar=True, batch_size=bm)
 
-        self.log(f"{phase}/loss", loss, prog_bar=True)
-        self.log(f"{phase}/contrast_loss", contrast_loss, prog_bar=True)
-        self.log(f"{phase}/contrast_loss_base", contrast_loss_baseline, prog_bar=True)
-        self.log(f"{phase}/corr_loss", corr_loss, prog_bar=True)
+        self.log(f"{phase}/loss", loss, prog_bar=True, batch_size=bm)
+        self.log(f"{phase}/contrast_loss", contrast_loss, prog_bar=True, batch_size=bm)
+        self.log(f"{phase}/contrast_loss_base", contrast_loss_baseline, prog_bar=True, batch_size=bm)
+        self.log(f"{phase}/corr_loss", corr_loss, prog_bar=True, batch_size=bm)
 
         if phase != "train":
             macc_best = get_masked_accuracy(images, masks, labels, self.surrogate, shap_values, "best")
             macc_worst = get_masked_accuracy(images, masks, labels, self.surrogate, shap_values, "worst")
-            self.log(f"{phase}/macc-best", macc_best, prog_bar=True)
-            self.log(f"{phase}/macc-worst", macc_worst, prog_bar=True)
+            self.log(f"{phase}/macc-best", macc_best, prog_bar=True, batch_size=bm)
+            self.log(f"{phase}/macc-worst", macc_worst, prog_bar=True, batch_size=bm)
 
         return loss
 
@@ -475,7 +477,7 @@ if __name__ == "__main__":
         Explainer,
         DataModuleWithMasks,
         experiment_name="explainer",
-        monitor="val/loss",
+        monitor="val/macc-best",  # lower is better, like with normal losses.
         parser_callback=parser_callback,
         main_config_callback=lambda config: {
             "datamodule": config.data.wrapped_datamodule.class_path.split(".")[-1].removesuffix("DataModule"),
@@ -497,5 +499,5 @@ if __name__ == "__main__":
             "acc": config.trainer.accumulate_grad_batches,
         },
         checkpoint_filename_pattern="epoch={epoch:0>3}_val-macc-best={val/macc-best:.3f}",
-        model_summary_depth=2,
+        model_summary_depth=1,
     )

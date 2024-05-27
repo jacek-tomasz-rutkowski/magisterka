@@ -27,23 +27,23 @@ Contains checkpoints with model weights that we want to keep:
         - `v4/`
             - `vit_small_patch16_224`        val accuracy 97.7% without masks. (powinno dać się 98.2%)
             - `swin_tiny_patch4_window7_224` val accuracy 98.0% without masks.
-            - `t2t_vit_14`                   val accuracy TODO without masks.
+            - `t2t_vit_14`                   val accuracy 97.7% without masks.
     - `gastro/`
         - `v4/`
             - `vit_small_patch16_224`        val accuracy 96.3% without masks. (pewnie da się lepiej)
             - `swin_tiny_patch4_window7_224` val accuracy 98.5% without masks. (powinno dać się 99.2%)
-            - `t2t_vit_14`                   TODO
+            - `t2t_vit_14`                   val accuracy TODO
 - `surrogate`  trenowane z `python -m lightning_modules.surrogate fit --config .../config.yaml`
     -  `cirfar10/`
         - `v4/`
             - `player16/`
                 - `vit_small_patch16_224`         val accuracy unmasked 98.2%, 16-masked 85.9%
                 - `swin_tiny_patch4_window7_224`  val accuracy unmasked 98.1%, 16-masked 86.3%
-                - `t2t_vit_14`                    TODO
+                - `t2t_vit_14`                    val accuracy TODO
             - `player196/`
                 - `vit_small_patch16_224`         val accuracy unmasked 97.9%, 196-masked 92.6%
                 - `swin_tiny_patch4_window7_224`  val accuracy unmasked 98.0%, 196-masked 92.8%
-                - `t2t_vit_14`                    TODO
+                - `t2t_vit_14`                    val accuracy TODO
     - `gastro/`
         - `v4/`
             - `player16/`
@@ -58,17 +58,17 @@ Contains checkpoints with model weights that we want to keep:
   -  `cirfar10/`
         - `v4/`
             - `player16/`
-                - `vit_small_patch16_224`         val-macc-best 65.9%
-                - `swin_tiny_patch4_window7_224`  val-macc-best 65.0%
-                - `t2t_vit_14`                    TODO
+                - `vit_small_patch16_224`         val-macc-best 65.9%,
+                - `swin_tiny_patch4_window7_224`  val-macc-best 65.0%,
+                - `t2t_vit_14`                    val accuracy TODO
             - `player196/`
-                - `vit_small_patch16_224`         val-macc-best TODO
-                - `swin_tiny_patch4_window7_224`  val-macc-best 61.1%
+                - `vit_small_patch16_224`         val-macc-best 55.4%,
+                - `swin_tiny_patch4_window7_224`  val-macc-best 63.1%,
                 - `t2t_vit_14`                    TODO
     - `gastro/`
         - `v4/`
             - `player16/`
-                - `vit_small_patch16_224`         val-macc-best TODO
+                - `vit_small_patch16_224`         val-macc-best 72.3%,
                 - `swin_tiny_patch4_window7_224`  TODO
                 - `t2t_vit_14`                    TODO
             - `player196/`
@@ -81,11 +81,7 @@ Contains checkpoints with model weights that we want to keep:
 ### Przed refactorem v4:
 
 - `explainer/cifar10/`:
-    - `v2/`:
-        - `t2t_vit.ckpt`: trained for 402 epochs (17k steps).
     - `v3/`:
-        trained with `CUDA_VISIBLE_DEVICES=x python -m vit_shapley.modules.explainer --num_players NNN --target_model_name=X --backbone_name=X --lr 0.00005 --acc 4 --divisor=$((NNN/2))`
-        (some with --use_sb=true)
         - `player196/t2t_vit.ckpt`: 306 epochs, val/macc-best ~50%
         - `player196/swin.ckpt`:    499 epochs, val/macc-best ~70% (could train for more)
         - `player196/vit.ckpt`:     211 epochs, val/macc-best ~55%

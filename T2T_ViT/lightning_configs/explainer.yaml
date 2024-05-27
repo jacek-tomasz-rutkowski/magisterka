@@ -2,14 +2,14 @@ model:
   surrogate:
     class_path: __main__.SurrogateFromLatestCheckpoint
     init_args:
-      # path: saved_models/surrogate/cifar10/v4/player196/vit_small_patch16_224/
-      # path: saved_models/surrogate/gastro/v4/player196/vit_small_patch16_224/
-      # path: saved_models/surrogate/cifar10/v4/player196/swin_tiny_patch4_window7_224/
-      # path: saved_models/surrogate/gastro/v4/player196/swin_tiny_patch4_window7_224/
       # path: saved_models/surrogate/cifar10/v4/player16/vit_small_patch16_224/
-      path: saved_models/surrogate/gastro/v4/player16/vit_small_patch16_224/
       # path: saved_models/surrogate/cifar10/v4/player16/swin_tiny_patch4_window7_224/
-      # path: saved_models/surrogate/gastro/v4/player16/swin_tiny_patch4_window7_224/
+      # path: saved_models/surrogate/cifar10/v4/player196/vit_small_patch16_224/
+      # path: saved_models/surrogate/cifar10/v4/player196/swin_tiny_patch4_window7_224/
+      # path: saved_models/surrogate/gastro/v4/player16/vit_small_patch16_224/
+      path: saved_models/surrogate/gastro/v4/player16/swin_tiny_patch4_window7_224/
+      # path: saved_models/surrogate/gastro/v4/player196/vit_small_patch16_224/
+      # path: saved_models/surrogate/gastro/v4/player196/swin_tiny_patch4_window7_224/
     # You could also use class_path: __main__.ClassifierFromLatestCheckpoint
   backbone: copy_surrogate
   # backbone: vit_small_patch16_224.augreg_in1k
@@ -56,7 +56,7 @@ data:
     pin_memory: true
 
 trainer:
-  max_epochs: 40
+  max_epochs: 80
   accumulate_grad_batches: 2
 
 seed_everything: 2

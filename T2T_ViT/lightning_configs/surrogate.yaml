@@ -1,13 +1,16 @@
 model:
   # backbone: vit_small_patch16_224.augreg_in1k
-  backbone: swin_tiny_patch4_window7_224.ms_in1k
+  # backbone: swin_tiny_patch4_window7_224.ms_in1k
+  backbone: t2t_vit_14
   target_model:
     class_path: __main__.ClassifierFromLatestCheckpoint
     init_args:
       # path: saved_models/classifier/cifar10/v4/vit_small_patch16_224/
+      # path: saved_models/classifier/cifar10/v4/swin_tiny_patch4_window7_224/
+      path: saved_models/classifier/cifar10/v4/t2t_vit_14/
       # path: saved_models/classifier/gastro/v4/vit_small_patch16_224/
-      path: saved_models/classifier/cifar10/v4/swin_tiny_patch4_window7_224/
       # path: saved_models/classifier/gastro/v4/swin_tiny_patch4_window7_224/
+      # path: saved_models/classifier/gastro/v4/t2t_vit_14/
   optimizer_kwargs:
     opt: adamw
     lr: 5.0e-05
@@ -27,17 +30,17 @@ data:
     class_path: CIFAR10DataModule
       # class_path: GastroDataModule
   generate_masks_kwargs:
-    num_players: 16
+    num_players: 196
     num_mask_samples: 2
     paired_mask_samples: true
     mode: shapley
   dataloader_kwargs:
-    batch_size: 48
+    batch_size: 128
     num_workers: 2
     pin_memory: true
 
 trainer:
   max_epochs: 30
-  accumulate_grad_batches: 8
+  accumulate_grad_batches: 4
 
 seed_everything: 3

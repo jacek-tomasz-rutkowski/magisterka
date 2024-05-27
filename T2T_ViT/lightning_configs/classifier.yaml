@@ -14,8 +14,8 @@ model:
     min_lr: 1e-8
 
 data:
-  class_path: CIFAR10DataModule
-  # class_path: GastroDataModule
+  # class_path: CIFAR10DataModule
+  class_path: GastroDataModule
   init_args:
     dataloader_kwargs:
       batch_size: 256
@@ -23,7 +23,7 @@ data:
       pin_memory: true
 
 trainer:
-  max_epochs: 30  # ~350 and ~3h for Gastro, ~30 and ~2h for CIFAR10
+  max_epochs: 350  # ~350 and ~3h for Gastro, ~30 and ~2h for CIFAR10
   accumulate_grad_batches: 2
 
 seed_everything: 10
