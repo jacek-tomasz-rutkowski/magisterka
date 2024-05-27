@@ -180,9 +180,9 @@ class CIFAR10DataModule(BaseDataModule[ImageLabelDataitem, ImageLabelBatch]):
 @dataclass
 class GenerateMasksKwargs:  # TypedDicts are not supported by jsonargparse<=4.28.0
     num_players: int
-    num_mask_samples: int
-    paired_mask_samples: bool
-    mode: Literal["uniform", "shapley"]
+    num_mask_samples: int = 2
+    paired_mask_samples: bool = True
+    mode: Literal["uniform", "shapley"] = "shapley"
 
 
 class DataModuleWithMasks(BaseDataModule[ImageLabelMaskDataitem, ImageLabelMaskBatch]):
@@ -200,15 +200,17 @@ class DataModuleWithMasks(BaseDataModule[ImageLabelMaskDataitem, ImageLabelMaskB
         self,
         wrapped_datamodule: CIFAR10DataModule | GastroDataModule,
         generate_masks_kwargs: GenerateMasksKwargs,
-        dataloader_kwargs: DataLoaderKwargs,
+        dataloader_kwargs: DataLoaderKwargs = dict(),
     ):
         super().__init__(dataloader_kwargs=dataloader_kwargs)
         self.wrapped_datamodule = wrapped_datamodule
         self.num_classes = self.wrapped_datamodule.num_classes
+        self.num_players = generate_masks_kwargs.num_players
         self.generate_masks_kwargs_train = generate_masks_kwargs
+
         # Keep mask generation for validation and testing fixed, to make scores comparable.
         self.generate_masks_kwargs_val = GenerateMasksKwargs(
-            num_players=generate_masks_kwargs.num_players,
+            num_players=self.num_players,
             num_mask_samples=2,
             paired_mask_samples=True,
             mode="uniform",
