@@ -1,6 +1,6 @@
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Generic, Literal, Sequence, Sized, Type, TypedDict, TypeVar
+from typing import Any, Callable, Generic, Literal, Sequence, Sized, Type, TypeVar
 
 import lightning as L
 import torch
@@ -85,13 +85,13 @@ class BaseDataModule(L.LightningDataModule, Generic[T_co, T_batch]):
         self.val_dataset: SizedDataset[T_co]
         self.test_dataset: SizedDataset[T_co]
 
-    def train_dataloader(self) -> torch.utils.data.DataLoader[T_batch]:
+    def train_dataloader(self) -> torch.utils.data.DataLoader[T_co]:
         return torch.utils.data.DataLoader(self.train_dataset, **self.dataloader_kwargs, shuffle=True)
 
-    def val_dataloader(self) -> torch.utils.data.DataLoader[T_batch]:
+    def val_dataloader(self) -> torch.utils.data.DataLoader[T_co]:
         return torch.utils.data.DataLoader(self.val_dataset, **self.dataloader_kwargs)
 
-    def test_dataloader(self) -> torch.utils.data.DataLoader[T_batch]:
+    def test_dataloader(self) -> torch.utils.data.DataLoader[T_co]:
         return torch.utils.data.DataLoader(self.test_dataset, **self.dataloader_kwargs)
 
 

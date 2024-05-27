@@ -1,6 +1,6 @@
 import copy
 import math
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import lightning as L
 import timm
@@ -12,17 +12,22 @@ from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
 from torch import Tensor
 from torch.nn import functional as F
 
-from datasets.datamodules import DataModuleWithMasks, ImageLabelMaskBatch
-from lightning_modules.classifier import CIFAR10DataModule, GastroDataModule  # noqa: F401
+from datasets.datamodules import DataModuleWithMasks, CIFAR10DataModule, GastroDataModule  # noqa: F401
+from datasets.types import ImageLabelMaskBatch
 from lightning_modules.cli import lightning_main
-from lightning_modules.common import TimmModel, get_head_and_backbone_parameters
+from lightning_modules.common import TimmModel
 from lightning_modules.surrogate import Surrogate
 from vit_shapley.masks import apply_masks
 from vit_shapley.modules.explainer_utils import get_masked_accuracy
 
 
 class Explainer(L.LightningModule):
-    """ """
+    """
+    TODO
+
+    - optimizer_kwargs: passed to timm.optim.create_optimizer_v2(), except lr_head is used as lr for the head.
+    - scheduler_kwargs: passed to timm.scheduler.create_scheduler_v2()
+    """
 
     def __init__(
         self,
@@ -38,7 +43,10 @@ class Explainer(L.LightningModule):
         use_softmax: bool = True,
         divisor: float = 1.0,
         efficiency_lambda: float = 0.0,
+        efficiency_class_lambda: float = 0.0,
         target_class_lambda: float = 0.0,
+        optimizer_kwargs: dict[str, Any] = dict(),
+        scheduler_kwargs: dict[str, Any] = dict(),
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["surrogate"])
@@ -52,7 +60,7 @@ class Explainer(L.LightningModule):
                 num_players == surrogate_num_players
             ), f"Explainer's {num_players=} != {surrogate_num_players=}. It's technically OK but unexpected."
 
-        self.__null: Tensor | None = None
+        self._null: Tensor | None = None
 
         self.backbone: nn.Module
         if backbone == "copy_surrogate":
@@ -71,8 +79,9 @@ class Explainer(L.LightningModule):
     def _build_head(self):
         """Build head modules: convolutions, attention blocks, and a final MLP."""
         self.convs = nn.Sequential()
-        for _ in range(self.hparams["head_num_convolutions"]):
+        for i in range(self.hparams["head_num_convolutions"]):
             self.convs.add_module(
+                f"head_conv{i}",
                 nn.Conv2d(
                     in_channels=self.embed_dim,
                     out_channels=self.embed_dim,
@@ -81,7 +90,7 @@ class Explainer(L.LightningModule):
                     padding=1,
                 )
             )
-            self.convs.add_module(nn.ReLU())
+            self.convs.add_module(f"head_relu{i}", nn.ReLU())
 
         self.attention_blocks = nn.ModuleList(
             [
@@ -161,7 +170,7 @@ class Explainer(L.LightningModule):
             indices = [int((i + 0.5) * r / s) for i in range(s)]
             x = x[:, indices, :, :][:, :, indices, :]  # (B, s, s, embed_dim)
 
-        if self.hparams["use_convolution"]:
+        if self.hparams["head_num_convolutions"]:
             x = x.permute(0, 3, 1, 2)  # (B, embed_dim, s, s)
             x = self.convs(x)  # (B, embed_dim, s, s)
             x = x.permute(0, 2, 3, 1)  # (B, s, s, embed_dim)
@@ -185,9 +194,9 @@ class Explainer(L.LightningModule):
         # the predicted player contributions sum up to grand - null.
         if normalize:
             if grand is None:
-                grand = self.grand(images).to(self.device)
+                grand = self.grand(images)
             if null is None:
-                null = self.null(images).to(self.device)
+                null = self.null(images)
             # Pred: (batch, num_players, num_classes), grand: (batch, num_classes), null: (1, num_classes).
             deficit = (grand - null) - pred.sum(dim=1)  # (batch, num_classes)
             pred = pred + deficit.unsqueeze(1) / self.num_players
@@ -201,14 +210,14 @@ class Explainer(L.LightningModule):
         Input: (batch, channel, height, width), only the shape is relevant.
         Output: (1, num_classes).
         """
-        if self.__null is not None:
-            return self.__null
+        if self._null is not None:
+            return self._null
         if images is None:
             raise RuntimeError("Call explainer.null(images) at least once to get null value.")
         with torch.no_grad():
             masks = torch.zeros(1, 1, self.num_players, device=self.surrogate.device)
             self._null = self.surrogate_multiple_masks(images[:1], masks).squeeze(dim=1)  # (1, num_classes)
-            return cast(Tensor, self.__null)
+            return self._null
 
     def grand(self, images: Tensor) -> Tensor:
         """Class probabilities for unmasked inputs.
@@ -250,7 +259,7 @@ class Explainer(L.LightningModule):
         # Images have shape (batch, channel, height, weight).
         # Masks have shape: (batch, num_masks_per_image, num_players).
         # Labels have shape: (batch,).
-        images, masks, labels = batch["images"], batch["masks"], batch["labels"]
+        images, masks, labels = batch["image"], batch["mask"], batch["label"]
 
         # Run surrogate on masked, unmasked and fully masked inputs.
         surrogate_values = self.surrogate_multiple_masks(images, masks)  # (batch, num_masks_per_image, num_classes)
@@ -258,7 +267,7 @@ class Explainer(L.LightningModule):
         surrogate_null = self.null(images)  # (1, num_classes)
 
         # Run explainer to get shap_values of shape (batch, num_players, num_classes).
-        shap_values = self(images, surrogate_grand=surrogate_grand, surrogate_null=surrogate_null)
+        shap_values = self(images, grand=surrogate_grand, null=surrogate_null)
 
         # Get approximation of surrogate_values from shap_values.
         # Recall surrogate_values[b,n,c] is the value (the class probability outputted by the surrogate)
@@ -381,7 +390,8 @@ class Explainer(L.LightningModule):
         lr = optimizer_kwargs.pop("lr")
         lr_head = optimizer_kwargs.pop("lr_head", lr)
 
-        head_p, backbone_p = get_head_and_backbone_parameters(self.model, self.model.get_classifier())
+        backbone_p = [p for p in self.backbone.parameters() if p.requires_grad]
+        head_p = list(self.convs.parameters()) + list(self.attention_blocks.parameters()) + list(self.mlp.parameters())
         optimizer = timm.optim.create_optimizer_v2(
             [{"params": backbone_p, "lr": lr}, {"params": head_p, "lr": lr_head}],
             **optimizer_kwargs,
@@ -420,13 +430,21 @@ if __name__ == "__main__":
         monitor="val/loss",
         parser_callback=parser_callback,
         main_config_callback=lambda config: {
-            aaa
             "datamodule": config.data.wrapped_datamodule.class_path.split(".")[-1].removesuffix("DataModule"),
             "num_players": config.data.generate_masks_kwargs.num_players,
             "backbone": config.model.backbone.split(".")[0],
-            "target_model": config.model.target_model.init_args.path,
+            "freeze_backbone": config.model.freeze_backbone,
+            "target_model": config.model.surrogate.init_args.path,
+            "n_conv": config.model.head_num_convolutions,
+            "n_att": config.model.head_num_attention_blocks,
+            "use_tanh": config.model.use_tanh,
+            "use_softmax": config.model.use_softmax,
+            "divisor": config.model.divisor,
+            "eff": config.model.efficiency_lambda,
+            "t": config.model.target_class_lambda,
             "lr": config.model.optimizer_kwargs["lr"],
             "lr_head": config.model.optimizer_kwargs.get("lr_head"),
+            "wd": config.model.optimizer_kwargs.get("weight_decay"),
             "batch": config.data.dataloader_kwargs["batch_size"],
             "acc": config.trainer.accumulate_grad_batches,
         },
