@@ -26,44 +26,54 @@ Contains checkpoints with model weights that we want to keep:
         - `v4/`
             - `vit_small_patch16_224`        val accuracy 97.7% without masks. (powinno dać się 98.2%)
             - `swin_tiny_patch4_window7_224` val accuracy 98.0% without masks.
+            - `t2t_vit_14`                   val accuracy TODO without masks.
     - `gastro/`
         - `v4/`
             - `vit_small_patch16_224`        val accuracy 96.3% without masks. (pewnie da się lepiej)
             - `swin_tiny_patch4_window7_224` val accuracy 98.5% without masks. (powinno dać się 99.2%)
+            - `t2t_vit_14`                   TODO
 - `surrogate`  trenowane z `python -m lightning_modules.surrogate fit --config .../config.yaml`
     -  `cirfar10/`
         - `v4/`
             - `player16/`
                 - `vit_small_patch16_224`         val accuracy unmasked 98.2%, 16-masked 85.9%
                 - `swin_tiny_patch4_window7_224`  val accuracy unmasked 98.1%, 16-masked 86.3%
+                - `t2t_vit_14`                    TODO
             - `player196/`
                 - `vit_small_patch16_224`         val accuracy unmasked 97.9%, 196-masked 92.6%
                 - `swin_tiny_patch4_window7_224`  val accuracy unmasked 98.0%, 196-masked 92.8%
+                - `t2t_vit_14`                    TODO
     - `gastro/`
         - `v4/`
             - `player16/`
                 - `vit_small_patch16_224`         val accuracy unmasked 97.2%, 16-masked 90.8%
                 - `swin_tiny_patch4_window7_224`  val accuracy unmasked 99.7%, 16-masked 96.1%
+                - `t2t_vit_14`                    TODO
             - `player196/`
                 - `vit_small_patch16_224`         val accuracy unmasked 96.0%, 196-masked 93.7%
                 - `swin_tiny_patch4_window7_224`  val accuracy unmasked 99.0%, 196-masked 98.3%
+                - `t2t_vit_14`                    TODO
 - `explainer` trenowane z `python -m lightning_modules.explainer fit --config .../config.yaml`
   -  `cirfar10/`
         - `v4/`
             - `player16/`
                 - `vit_small_patch16_224`         val-macc-best 65.9%
                 - `swin_tiny_patch4_window7_224`  val-macc-best 65.0%
+                - `t2t_vit_14`                    TODO
             - `player196/`
-                - `vit_small_patch16_224`         TODO
-                - `swin_tiny_patch4_window7_224`  TODO
+                - `vit_small_patch16_224`         val-macc-best TODO
+                - `swin_tiny_patch4_window7_224`  val-macc-best 61.1%
+                - `t2t_vit_14`                    TODO
     - `gastro/`
         - `v4/`
             - `player16/`
-                - `vit_small_patch16_224`         TODO
+                - `vit_small_patch16_224`         val-macc-best TODO
                 - `swin_tiny_patch4_window7_224`  TODO
+                - `t2t_vit_14`                    TODO
             - `player196/`
                 - `vit_small_patch16_224`         TODO
                 - `swin_tiny_patch4_window7_224`  TODO
+                - `t2t_vit_14`                    TODO
 
 
 

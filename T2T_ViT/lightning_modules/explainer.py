@@ -20,14 +20,28 @@ from lightning_modules.cli import lightning_main
 from lightning_modules.common import TimmModel
 from lightning_modules.surrogate import Surrogate
 from utils import find_latest_checkpoint
-from vit_shapley.masks import apply_masks
-from vit_shapley.modules.explainer_utils import get_masked_accuracy
+from vit_shapley.masks import apply_masks, get_masked_accuracy
 
 
 class Explainer(L.LightningModule):
     """
-    TODO
+    Model for predicting SHAP values of a model on given images.
 
+    - surrogate: the model to explain, should take masked images (BCHW) and output (non-normalized)
+        logits of class probabilities (B, num_classes).
+    - backbone: name of timm model to use as backbone or "copy_surrogate" to use the surrogate's backbone.
+    - freeze_backbone: how much of the backbone to freeze.
+    - num_classes: number of classes the surrogate classifies into.
+    - num_players: number of patches that can be masked, must be a perfect square.
+    - head_num_convolutions: number of convolution layers in head.
+    - head_num_attention_blocks: number of attention layers in head.
+    - head_mlp_layer_ratio: ratio of hidden layer size to input size in head.
+    - use_tanh: whether to apply tanh to the final output.
+    - use_softmax: whether to learn class probabilities (applying softmax to all calls to surrogate) rather than logits.
+    - divisor: constant divides the final output (when use_softmax=True it helps to set it to num_players // 2).
+    - efficiency_lambda: ratio of loss that encourages the sum of SHAP values to be close to grand - null.
+    - efficiency_class_lambda: ratio of loss that encourages the sum of SHAP values to be close to zero for each class.
+    - target_class_lambda: ratio of loss that considers only to the ground-truth class, rather than all classes.
     - optimizer_kwargs: passed to timm.optim.create_optimizer_v2(), except lr_head is used as lr for the head.
     - scheduler_kwargs: passed to timm.scheduler.create_scheduler_v2()
     """

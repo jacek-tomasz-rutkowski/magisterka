@@ -6,8 +6,8 @@ model:
       # path: saved_models/surrogate/gastro/v4/player196/vit_small_patch16_224/
       # path: saved_models/surrogate/cifar10/v4/player196/swin_tiny_patch4_window7_224/
       # path: saved_models/surrogate/gastro/v4/player196/swin_tiny_patch4_window7_224/
-      path: saved_models/surrogate/cifar10/v4/player16/vit_small_patch16_224/
-      # path: saved_models/surrogate/gastro/v4/player16/vit_small_patch16_224/
+      # path: saved_models/surrogate/cifar10/v4/player16/vit_small_patch16_224/
+      path: saved_models/surrogate/gastro/v4/player16/vit_small_patch16_224/
       # path: saved_models/surrogate/cifar10/v4/player16/swin_tiny_patch4_window7_224/
       # path: saved_models/surrogate/gastro/v4/player16/swin_tiny_patch4_window7_224/
     # You could also use class_path: __main__.ClassifierFromLatestCheckpoint
@@ -43,20 +43,20 @@ model:
 
 data:
   wrapped_datamodule:
-    class_path: CIFAR10DataModule
-    # class_path: GastroDataModule
+    # class_path: CIFAR10DataModule
+    class_path: GastroDataModule
   generate_masks_kwargs:
     num_players: 16
     num_mask_samples: 2
     paired_mask_samples: true
     mode: shapley
   dataloader_kwargs:
-    batch_size: 48
+    batch_size: 256
     num_workers: 2
     pin_memory: true
 
 trainer:
   max_epochs: 40
-  accumulate_grad_batches: 8
+  accumulate_grad_batches: 2
 
 seed_everything: 2

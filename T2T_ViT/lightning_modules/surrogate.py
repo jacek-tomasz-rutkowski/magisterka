@@ -60,7 +60,7 @@ class Surrogate(L.LightningModule):
         # TODO or actually copy target_model? Originally we had load_transferred_model(backbone_name).
 
     def forward(self, x: Tensor) -> Tensor:
-        """On input: masked images (B, C, H, W), output: logits (B, output_dim)."""
+        """On input: masked images (B, C, H, W), output: non-normalized logits (B, num_classes)."""
         return self.model(x)
 
     @staticmethod

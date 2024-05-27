@@ -151,6 +151,7 @@ class T2T_ViT(nn.Module):
         token_dim=64,
         pretrained_cfg=None,
         pretrained_cfg_overlay=None,
+        global_pool: str = "token"
     ):
         super().__init__()
         assert not pretrained_cfg_overlay, f"Received unexpected {pretrained_cfg_overlay=}"
@@ -190,6 +191,7 @@ class T2T_ViT(nn.Module):
             ]
         )
         self.norm = norm_layer(embed_dim)
+        self.feature_info = [dict(num_chs=embed_dim, reduction=16, module=f'blocks.{i}') for i in range(depth)]
 
         # Classifier head
         self.head = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
@@ -229,13 +231,18 @@ class T2T_ViT(nn.Module):
             x = blk(x)
 
         x = self.norm(x)
-        return x[:, 0]
+        return x
 
-    # with or without [:,0]
+    def forward_head(self, x: torch.Tensor, pre_logits: bool = False):
+        x = x[:, 0]  # Take classification token only, we don't support other methods of global pooling.
+        return x if pre_logits else self.head(x)
+
+    # def forward_head(self, x, pre_logits: bool = False):
+    #     return self.head(x, pre_logits=True) if pre_logits else self.head(x)
 
     def forward(self, x):
         x = self.forward_features(x)
-        x = self.head(x)
+        x = self.forward_head(x)
         return x
 
 
