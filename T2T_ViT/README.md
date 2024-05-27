@@ -32,18 +32,18 @@ Contains checkpoints with model weights that we want to keep:
         - `v4/`
             - `vit_small_patch16_224`        val accuracy 96.3% without masks. (pewnie da się lepiej)
             - `swin_tiny_patch4_window7_224` val accuracy 98.5% without masks. (powinno dać się 99.2%)
-            - `t2t_vit_14`                   val accuracy TODO
+            - `t2t_vit_14`                   val accuracy 99.0% without masks.
 - `surrogate`  trenowane z `python -m lightning_modules.surrogate fit --config .../config.yaml`
-    -  `cirfar10/`
+    -  `cifar10/`
         - `v4/`
             - `player16/`
                 - `vit_small_patch16_224`         val accuracy unmasked 98.2%, 16-masked 85.9%
                 - `swin_tiny_patch4_window7_224`  val accuracy unmasked 98.1%, 16-masked 86.3%
-                - `t2t_vit_14`                    val accuracy TODO
+                - `t2t_vit_14`                    val accuracy unmasked 98.0%, 16-masked 85.5%
             - `player196/`
                 - `vit_small_patch16_224`         val accuracy unmasked 97.9%, 196-masked 92.6%
                 - `swin_tiny_patch4_window7_224`  val accuracy unmasked 98.0%, 196-masked 92.8%
-                - `t2t_vit_14`                    val accuracy TODO
+                - `t2t_vit_14`                    val accuracy unmasked 97.7%, 196-masked 91.5%
     - `gastro/`
         - `v4/`
             - `player16/`
@@ -55,12 +55,12 @@ Contains checkpoints with model weights that we want to keep:
                 - `swin_tiny_patch4_window7_224`  val accuracy unmasked 99.0%, 196-masked 98.3%
                 - `t2t_vit_14`                    TODO
 - `explainer` trenowane z `python -m lightning_modules.explainer fit --config .../config.yaml`
-  -  `cirfar10/`
+  -  `cifar10/`
         - `v4/`
             - `player16/`
                 - `vit_small_patch16_224`         val-macc-best 65.9%,
                 - `swin_tiny_patch4_window7_224`  val-macc-best 65.0%,
-                - `t2t_vit_14`                    val accuracy TODO
+                - `t2t_vit_14`                    TODO
             - `player196/`
                 - `vit_small_patch16_224`         val-macc-best 55.4%,
                 - `swin_tiny_patch4_window7_224`  val-macc-best 63.1%,
@@ -72,7 +72,7 @@ Contains checkpoints with model weights that we want to keep:
                 - `swin_tiny_patch4_window7_224`  TODO
                 - `t2t_vit_14`                    TODO
             - `player196/`
-                - `vit_small_patch16_224`         TODO
+                - `vit_small_patch16_224`         val-macc-best 27.4%
                 - `swin_tiny_patch4_window7_224`  TODO
                 - `t2t_vit_14`                    TODO
 

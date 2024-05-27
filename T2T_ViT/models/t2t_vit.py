@@ -194,6 +194,7 @@ class T2T_ViT(nn.Module):
         self.feature_info = [dict(num_chs=embed_dim, reduction=16, module=f'blocks.{i}') for i in range(depth)]
 
         # Classifier head
+        self.global_pool = global_pool
         self.head = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
         trunc_normal_(self.cls_token, std=0.02)
@@ -215,8 +216,9 @@ class T2T_ViT(nn.Module):
     def get_classifier(self):
         return self.head
 
-    def reset_classifier(self, num_classes, global_pool=""):
+    def reset_classifier(self, num_classes, global_pool="token"):
         self.num_classes = num_classes
+        self.global_pool = global_pool
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
     def forward_features(self, x):
@@ -234,7 +236,8 @@ class T2T_ViT(nn.Module):
         return x
 
     def forward_head(self, x: torch.Tensor, pre_logits: bool = False):
-        x = x[:, 0]  # Take classification token only, we don't support other methods of global pooling.
+        if self.global_pool == "token":
+            x = x[:, 0]  # Take classification token only, we don't support other methods of global pooling.
         return x if pre_logits else self.head(x)
 
     # def forward_head(self, x, pre_logits: bool = False):

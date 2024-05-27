@@ -7,28 +7,28 @@ model:
     init_args:
       # path: saved_models/classifier/cifar10/v4/vit_small_patch16_224/
       # path: saved_models/classifier/cifar10/v4/swin_tiny_patch4_window7_224/
-      path: saved_models/classifier/cifar10/v4/t2t_vit_14/
+      # path: saved_models/classifier/cifar10/v4/t2t_vit_14/
       # path: saved_models/classifier/gastro/v4/vit_small_patch16_224/
       # path: saved_models/classifier/gastro/v4/swin_tiny_patch4_window7_224/
-      # path: saved_models/classifier/gastro/v4/t2t_vit_14/
+      path: saved_models/classifier/gastro/v4/t2t_vit_14/
   optimizer_kwargs:
-    opt: adamw
-    lr: 5.0e-05
-    lr_head: 0.0002
-    # opt: sgd
-    # lr: 0.001
-    # lr_head: 0.01
+    # opt: adamw
+    # lr: 5.0e-05
+    # lr_head: 0.0002
+    opt: sgd
+    lr: 0.001
+    lr_head: 0.01
     weight_decay: 5e-4
-    # momentum: 0.9
+    momentum: 0.9
   scheduler_kwargs:
     sched: cosine
     warmup_epochs: 1
-    min_lr: 1e-6
+    min_lr: 1e-5
 
 data:
   wrapped_datamodule:
-    class_path: CIFAR10DataModule
-      # class_path: GastroDataModule
+    # class_path: CIFAR10DataModule
+    class_path: GastroDataModule
   generate_masks_kwargs:
     num_players: 196
     num_mask_samples: 2
@@ -40,7 +40,7 @@ data:
     pin_memory: true
 
 trainer:
-  max_epochs: 30
-  accumulate_grad_batches: 4
+  max_epochs: 200  # ~30 for CIFAR10, ~200 for Gastro
+  accumulate_grad_batches: 1
 
 seed_everything: 3

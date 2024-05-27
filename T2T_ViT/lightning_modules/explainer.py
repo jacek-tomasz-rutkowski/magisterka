@@ -151,7 +151,7 @@ class Explainer(L.LightningModule):
                 if not tail_started:
                     if id(p) in tail_param_ids:
                         tail_started = True
-                        print("Tail started", name)
+                        # print("Tail started", name)
                     continue
                 else:
                     if id(p) not in tail_param_ids:
@@ -285,12 +285,13 @@ class Explainer(L.LightningModule):
             images_masked = apply_masks(images, masks)  # (B * num_mask_samples, C, H, W)
 
             logits = self.surrogate(images_masked)  # (B * num_mask_samples, num_classes)
+            assert logits.shape == (batch_size * num_masks_per_image, self.hparams["num_classes"]), logits.shape
             surrogate_values: Tensor
             if self.hparams["use_softmax"]:
                 surrogate_values = torch.nn.Softmax(dim=1)(logits)  # (B * num_mask_samples, num_classes)
             else:
                 surrogate_values = logits
-        return surrogate_values.reshape(batch_size, num_masks_per_image, -1)
+        return surrogate_values.reshape(batch_size, num_masks_per_image, self.hparams["num_classes"])
 
     def _common_step(
         self, batch: ImageLabelMaskBatch, batch_idx: int, phase: Literal["train", "val", "test"]
