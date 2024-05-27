@@ -3,14 +3,16 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-import pytorch_lightning as pl
+import lightning as L
 import torch
-from pytorch_lightning.callbacks import RichProgressBar
+from lightning.pytorch.callbacks import RichProgressBar
 
-from datasets.CIFAR_10_Dataset import CIFAR_10_Datamodule
-from utils import PROJECT_ROOT, find_latest_checkpoint, find_latest_checkpoints, load_transferred_model
-from vit_shapley.modules.explainer import Explainer
-from vit_shapley.modules.surrogate import Surrogate
+import models.t2t_vit  # noqa: F401
+from datasets.datamodules import CIFAR10DataModule, DataModuleWithMasks, GenerateMasksKwargs
+from lightning_modules.classifier import Classifier
+from lightning_modules.explainer import Explainer
+from lightning_modules.surrogate import Surrogate
+from utils import PROJECT_ROOT, find_latest_checkpoint, find_latest_checkpoints
 
 
 def cleanup_checkpoint(source: Path, target: Path, prefix: str) -> None:
@@ -24,93 +26,71 @@ def cleanup_checkpoint(source: Path, target: Path, prefix: str) -> None:
 
 def main(explainer_path: Path) -> None:
     torch.set_float32_matmul_precision("medium")
-    tmp_checkpoint_path = PROJECT_ROOT / "checkpoints" / "tmp.ckpt"
 
+    # Load target/surrogate model.
     use_surg = True
+    model: L.LightningModule
     if use_surg:
         surrogate_dir = PROJECT_ROOT / "saved_models/surrogate/cifar10"
         surrogate_path = (
-            surrogate_dir / "v2/player196/t2t_vit.ckpt"
-            # surrogate_dir / "_t2t_vit_player16_lr0.0001_wd0.0_b256_epoch19.ckpt"
-            # surrogate_dir / "_vit_player16_lr0.0001_wd0.0_b256_epoch19.ckpt"
-            # surrogate_dir / "_swin_player16_lr0.0002_wd0.0_b256_epoch19.ckpt"
-            # surrogate_dir / "_player196_lr1e-05_wd0.0_b128_epoch49.ckpt"
-            # surrogate_dir / "_player16_lr1e-05_wd0.0_b256_epoch28.ckpt"
+            surrogate_dir / "v4/player196/swin_tiny_patch4_window7_224"
+            # surrogate_dir / "v4/player196/vit_small_patch16_224"
         )
-        cleanup_checkpoint(surrogate_path, tmp_checkpoint_path, "target_model.")
-        surrogate = Surrogate.load_from_checkpoint(
-            tmp_checkpoint_path,
-            map_location="cuda",
-            strict=True,  # It's OK to ignore "target_model.*" (in checkpoint but not in Surrogate) for evaluation.
-            # backbone_name="t2t_vit",  # Needs to be specified for older checkpoints.
+        model = Surrogate.load_from_latest_checkpoint(
+            surrogate_path,
+            map_location="cuda"
         )
     else:
-        surrogate = load_transferred_model("t2t_vit", device="cuda")
-    surrogate.eval()
-    surrogate_state_dict = dict(surrogate.state_dict())
-    print("Surrogate loaded")
+        model = Classifier.load_from_latest_checkpoint(
+            PROJECT_ROOT / "saved_models/classifier/cifar10/v4/swin_tiny_patch4_window7_224",
+            map_location="cuda"
+        )
+    model.eval()
+    model_state_dict = dict(model.state_dict())
+    print("Target/surrogate model loaded")
 
     # Get latest checkpoint from the run:
     explainer_path = find_latest_checkpoint(explainer_path.parent)
 
-    cleanup_checkpoint(Path(explainer_path), tmp_checkpoint_path, "surrogate.target_model.")
-
     # Force override of surrogate in explainer.surrogate checkpoint.
     if True:
+        tmp_checkpoint_path = PROJECT_ROOT / "checkpoints" / "tmp.ckpt"
         cleanup_checkpoint(Path(explainer_path), tmp_checkpoint_path, "surrogate.")
         ckpt = torch.load(tmp_checkpoint_path)
-        for k in surrogate_state_dict:
-            ckpt["state_dict"]["surrogate." + k] = surrogate_state_dict[k]
-        # Stuff that needs to be specified for older checkpoints:
-        defaults = dict(
-            backbone_name="t2t_vit",
-            use_convolution=False,
-            num_players=196,
-            use_surg=True
-        )
-        for k, v in defaults.items():
-            if k not in ckpt["hyper_parameters"]:
-                ckpt["hyper_parameters"][k] = v
+        for k in model_state_dict:
+            ckpt["state_dict"]["surrogate." + k] = model_state_dict[k]
         torch.save(ckpt, tmp_checkpoint_path)
+    else:
+        tmp_checkpoint_path = explainer_path
 
     explainer = Explainer.load_from_checkpoint(
         tmp_checkpoint_path,
         map_location="cuda",
-        surrogate=deepcopy(surrogate),
-        strict=True,
-        # Needs to be specified for older checkpoints:
-        # backbone_name="t2t_vit",
-        # use_convolution=False,
-        # num_players=196,
-        # use_surg=False
+        surrogate=deepcopy(model)
     )
     explainer.eval()
     print("Explainer loaded")
 
-    datamodule = CIFAR_10_Datamodule(
-        num_players=196,
-        num_mask_samples=2,
-        paired_mask_samples=True,
-        batch_size=256,
-        num_workers=2,
-        train_mode="uniform",
-        val_mode="uniform",
-        test_mode="uniform",
+    datamodule = DataModuleWithMasks(
+        CIFAR10DataModule(),
+        GenerateMasksKwargs(num_players=explainer.num_players),
+        dict(batch_size=32)
     )
-    datamodule.setup()
+    datamodule.setup("test")
 
-    trainer = pl.Trainer(
+    trainer = L.Trainer(
         default_root_dir=PROJECT_ROOT / "checkpoints" / "tmplog",
         callbacks=RichProgressBar(leave=True),
         limit_val_batches=0.25,
-        limit_test_batches=0.25,
+        limit_test_batches=0.25
     )
-    # trainer.validate(explainer, datamodule)
-    results: dict[str, Any] = dict(trainer.test(explainer, datamodule)[0])  # , ckpt_path=str(tmp_checkpoint_path))
+    results: dict[str, Any] = dict(trainer.test(explainer, datamodule)[0])
+    # results: dict[str, Any] = dict(trainer.validate(explainer, datamodule)[0])
     results['path'] = str(explainer_path)
     print(explainer_path)
-    with (explainer_path.parent / "results.txt").open("a") as f:
+    with (explainer_path.parent.parent / "test_results.txt").open("a") as f:
         json.dump(results, f, indent=4, sort_keys=True)
+        print("", file=f)
 
 
 if __name__ == "__main__":
@@ -119,4 +99,4 @@ if __name__ == "__main__":
             print(p)
             main(p)
         except Exception as e:
-            print(e)
+            print(f"Exception ({type(e)})\n", e)

@@ -12,6 +12,7 @@ import torch.utils.data
 from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
 from torch import Tensor
 
+import models.t2t_vit  # noqa: F401
 from datasets.types import ImageLabelBatch
 from datasets.datamodules import CIFAR10DataModule, GastroDataModule  # noqa: F401
 from lightning_modules.cli import lightning_main

@@ -13,6 +13,7 @@ from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
 from torch import Tensor
 from torch.nn import functional as F
 
+import models.t2t_vit  # noqa: F401
 from datasets.datamodules import CIFAR10DataModule, DataModuleWithMasks, GastroDataModule  # noqa: F401
 from datasets.types import ImageLabelMaskBatch
 from lightning_modules.cli import lightning_main

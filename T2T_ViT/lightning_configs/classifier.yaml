@@ -1,6 +1,7 @@
 model:
-  backbone: vit_small_patch16_224.augreg_in1k
+  # backbone: vit_small_patch16_224.augreg_in1k
   # backbone: swin_tiny_patch4_window7_224.ms_in1k
+  backbone: t2t_vit_14
   optimizer_kwargs:
     opt: adamw
     lr: 5e-5
@@ -13,24 +14,29 @@ model:
     min_lr: 1e-8
 
 data:
-  # class_path: CIFAR10DataModule
-  class_path: GastroDataModule
+  class_path: CIFAR10DataModule
+  # class_path: GastroDataModule
   init_args:
     dataloader_kwargs:
-      batch_size: 64
+      batch_size: 256
       num_workers: 4
       pin_memory: true
 
 trainer:
-  max_epochs: 350  # ~350 and ~3h for Gastro, ~30 and ~2h for CIFAR10
-  accumulate_grad_batches: 8
+  max_epochs: 30  # ~350 and ~3h for Gastro, ~30 and ~2h for CIFAR10
+  accumulate_grad_batches: 2
 
 seed_everything: 10
 
 # As a backbone:
 # - swin_tiny_patch4_window7_224.ms_in1k     , model size: 106.1 MiB parameters: 26.3 M
 # - vit_small_patch16_224.augreg_in1k        , model size:  82.7 MiB parameters: 20.7 M
+# - t2t_vit_14                               , model size:  80.7 MiB parameters: 20.2 M
 # We could also check:
+# - t2t_vit_7                                , model size:  15.5 MiB parameters: 3.9 M
+# - t2t_vit_10                               , model size:  21.5 MiB parameters: 5.4 M
+# - t2t_vit_12                               , model size:  25.5 MiB parameters: 6.4 M
+# - t2t_vit_t_14                             , model size:  80.7 MiB parameters: 20.2 M
 # - efficientvit_b0.r224_in1k                , model size:   8.2 MiB parameters: 2.0 M
 # - efficientvit_b1.r224_in1k                , model size:  28.7 MiB parameters: 7.2 M
 # - efficientvit_b2.r224_in1k                , model size:  83.2 MiB parameters: 20.8 M
