@@ -5,10 +5,10 @@ import torch
 from torch import Tensor
 from tqdm import tqdm
 
-from datasets.CIFAR_10_Dataset import CIFAR_10_Datamodule
+from datasets.datamodules import CIFAR10DataModule, DataModuleWithMasks, GenerateMasksKwargs
+from lightning_modules.surrogate import Surrogate
 from utils import PROJECT_ROOT
 from vit_shapley.masks import apply_masks
-from vit_shapley.modules.surrogate import Surrogate
 
 
 class BruteShap:
@@ -128,20 +128,18 @@ class BruteShap:
 
 
 def main() -> None:
-    surrogate = Surrogate.load_from_checkpoint(
-        PROJECT_ROOT / "saved_models/surrogate/cifar10/v2/player16/t2t_vit.ckpt", map_location="cuda", strict=True
+    surrogate = Surrogate.load_from_latest_checkpoint(
+        PROJECT_ROOT / "saved_models/surrogate/cifar10/v4/player16/vit_small_patch16_224", map_location="cuda"
     )
 
-    datamodule = CIFAR_10_Datamodule(
-        num_players=16, num_mask_samples=1, paired_mask_samples=False, batch_size=3, num_workers=0
-    )
-    datamodule.setup()
+    datamodule = DataModuleWithMasks(CIFAR10DataModule(), GenerateMasksKwargs(num_players=16), dict(batch_size=32))
+    datamodule.setup("test")
     data = next(iter(datamodule.test_dataloader()))
-    images, _ = data["images"], data["labels"]
+    images, _ = data["image"], data["label"]
 
     start_time = time.time()
 
-    brute_shap = BruteShap(surrogate, num_classes=10)
+    brute_shap = BruteShap(surrogate, num_classes=datamodule.num_classes)
     print(brute_shap.shap_values(images, num_players=16, compute_batch=256))
 
     print(f"Time of computation is {time.time() - start_time:.2f} seconds")
