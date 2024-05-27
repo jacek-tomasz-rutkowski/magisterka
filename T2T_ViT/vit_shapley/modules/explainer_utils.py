@@ -268,7 +268,7 @@ def quick_test_masked(
         accuracies = {"best": 0., "worst": 0.}
         with tqdm(dataloader, ) as dataloader_progress:
             for batch in dataloader_progress:
-                images, masks, targets = batch['images'], batch['masks'], batch['labels']
+                images, masks, targets = batch['image'], batch['mask'], batch['label']
                 images, masks, targets = images.to(device), masks.to(device), targets.to(device)
                 shap_values = explainer(images)
 

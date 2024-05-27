@@ -1,6 +1,8 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
 import PIL.ImageDraw
+import torch
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from torch import Tensor
 
@@ -29,7 +31,7 @@ def to_image_grid(
     n_columns: int = 8,
     classes: list[str] = CIFAR10_CLASSES,
     mean: tuple[float, float, float] = IMAGENET_DEFAULT_MEAN,
-    std: tuple[float, float, float] = IMAGENET_DEFAULT_STD
+    std: tuple[float, float, float] = IMAGENET_DEFAULT_STD,
 ) -> PIL.Image.Image:
     """
     Converts a tensor of shape (B, C, H, W) to a grid of images.
@@ -40,6 +42,18 @@ def to_image_grid(
     images = [to_image(x[i], scale=scale, mean=mean, std=std) for i in range(len(x))]
     str_labels = _labels_to_strings(labels, classes) if labels is not None else None
     return _make_image_grid(images, labels=str_labels, colors=colors, font_size=int(35 * scale), n_columns=n_columns)
+
+
+def get_heatmaps_grid(
+    images: torch.Tensor,
+    labels: torch.Tensor,
+    shap_values: torch.Tensor,
+    scale: float = 0.5,
+    alpha: float = 0.6
+) -> PIL.Image.Image:
+    heatmap_grid = _make_image_grid(_get_heatmaps(shap_values, images.shape, scale=scale))
+    image_grid = to_image_grid(images, labels, scale=scale)
+    return PIL.Image.blend(image_grid, heatmap_grid, alpha=alpha)
 
 
 def _labels_to_strings(labels: list[str] | list[int] | Tensor, classes: list[str] = CIFAR10_CLASSES) -> list[str]:
@@ -116,3 +130,49 @@ def _make_image_grid(
     for i, im in enumerate(images):
         grid.paste(im, ((i % n_columns) * W, (i // n_columns) * H))
     return grid
+
+
+def _get_heatmaps(
+    values: Tensor,
+    images_shape: tuple[int, ...],
+    vmin: float | Tensor | None = None,
+    vmax: float | Tensor | None = None,
+    scale: float = 0.5,
+) -> list[PIL.Image.Image]:
+    """
+    Args:
+    - values: (B, num_players)
+    - images_shape: (B, C, H, W)
+    - vmin: value normalized to zero (default: min per image in batch).
+    - vmax: value normalized to one (default: max per image in batch).
+    """
+    B, num_players = values.shape
+    _B, C, H, W = images_shape
+    assert B == _B and C == 3, f"Shape mismatch {values.shape=}, {images_shape=}"
+    print(f"min={values.min().item():.3f}, max={values.max().item():.3f}")
+
+    mask_H = int(np.round(np.sqrt(num_players)))
+    mask_W = mask_H
+    assert mask_H * mask_W == num_players, f"{num_players=}, expected a square number."
+    values = values.view(B, mask_H, mask_W)
+
+    # Upscale masks to image size.
+    h_repeats, w_repeats = int(np.ceil(H / mask_H)), int(np.ceil(W / mask_W))
+    values = values.repeat_interleave(h_repeats, dim=1).repeat_interleave(w_repeats, dim=2)
+    values = values[:, :H, :W]
+
+    # Normalize to [0, 1]
+    if vmin is None:
+        # Min per image in batch.
+        vmin = values.min(dim=2, keepdim=True).values.min(dim=1, keepdim=True).values
+    if vmax is None:
+        # Max per image in batch.
+        vmax = values.max(dim=2, keepdim=True).values.max(dim=1, keepdim=True).values
+    values = (values - vmin) / (vmax - vmin + 1e-8)
+
+    color_map = plt.get_cmap("viridis")
+    values = torch.tensor(color_map(values))  # (B, H, W, 4)
+    values = values[:, :, :, :3]  # Remove alpha channel
+    values = values.permute(0, 3, 1, 2)  # (B, C, H, W)
+
+    return [_tensor_to_image(v, scale=scale, mean=(0., 0., 0.), std=(1., 1., 1.)) for v in values]

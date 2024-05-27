@@ -1,5 +1,6 @@
 import copy
 import math
+from pathlib import Path
 from typing import Any, Literal, cast
 
 import lightning as L
@@ -12,11 +13,12 @@ from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
 from torch import Tensor
 from torch.nn import functional as F
 
-from datasets.datamodules import DataModuleWithMasks, CIFAR10DataModule, GastroDataModule  # noqa: F401
+from datasets.datamodules import CIFAR10DataModule, DataModuleWithMasks, GastroDataModule  # noqa: F401
 from datasets.types import ImageLabelMaskBatch
 from lightning_modules.cli import lightning_main
 from lightning_modules.common import TimmModel
 from lightning_modules.surrogate import Surrogate
+from utils import find_latest_checkpoint
 from vit_shapley.masks import apply_masks
 from vit_shapley.modules.explainer_utils import get_masked_accuracy
 
@@ -88,7 +90,7 @@ class Explainer(L.LightningModule):
                     kernel_size=3,
                     stride=1,
                     padding=1,
-                )
+                ),
             )
             self.convs.add_module(f"head_relu{i}", nn.ReLU())
 
@@ -411,6 +413,15 @@ class Explainer(L.LightningModule):
     # def state_dict(self):
     #     """Remove 'surrogate' from the state_dict (the stuff saved in checkpoints)."""
     #     return {k: v for k, v in super().state_dict().items() if not k.startswith("surrogate.")}
+
+    @classmethod
+    def load_from_latest_checkpoint(
+        cls, path: Path, map_location: Any = None, strict: bool = True, **kwargs: Any
+    ) -> "Explainer":
+        """Load the latest checkpoint found under a given path (directories are search recursively)."""
+        ckpt_path = find_latest_checkpoint(path)
+        explainer = cls.load_from_checkpoint(ckpt_path, map_location=map_location, strict=strict, **kwargs)
+        return cast(Explainer, explainer)
 
 
 # This allows calling Surrogate.load_from_latest_checkpoint() from config files.
