@@ -93,7 +93,7 @@ class Explainer(L.LightningModule):
         self.reduction = self.backbone.feature_info[-1]["reduction"]
         self._build_head()
 
-    def _build_head(self):
+    def _build_head(self) -> None:
         """Build head modules: convolutions, attention blocks, and a final MLP."""
         self.convs = nn.Sequential()
         for i in range(self.hparams["head_num_convolutions"]):
@@ -133,9 +133,31 @@ class Explainer(L.LightningModule):
         elif self.hparams["freeze_backbone"] == "except_last_two":
             for value in self.backbone.parameters():
                 value.requires_grad = False
-            for m in [self.backbone.blocks[-2], self.backbone.blocks[-1], self.backbone.norm]:
-                for value in m.parameters():
-                    value.requires_grad = True
+
+            # Get names of the last n feature layers from feature_info.
+            names = [self.backbone.feature_info[-(i + 1)]["module"] for i in range(2)]
+
+            # Unfreeze all the parameters there.
+            tail_param_ids= set[int]()
+            for name in names:
+                for _n, p in self.backbone.get_submodule(name).named_parameters(prefix=name):
+                    p.requires_grad = True
+                    tail_param_ids.add(id(p))
+                    # print("Unfreezing ", _n)
+
+            # Also unfreeze all parameters that are _after_ any of the unfrozen parameters.
+            tail_started = False
+            for name, p in self.backbone.named_parameters():
+                if not tail_started:
+                    if id(p) in tail_param_ids:
+                        tail_started = True
+                        print("Tail started", name)
+                    continue
+                else:
+                    if id(p) not in tail_param_ids:
+                        p.requires_grad = True
+                        # print("Also unfreezing:", name)
+
         elif self.hparams["freeze_backbone"] == "none":
             pass
         else:

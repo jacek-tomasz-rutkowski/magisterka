@@ -6,6 +6,7 @@
 ## Trenowanie
 * Jeśli mamy wiele kart do wyboru (`nvidia-smi` je pokaże) to wybieramy np. jedną dopisując przed komendą `CUDA_VISIBLE_DEVICES=0 python ...`.
 * Transfer learning: modyfikujemy `lightning_configs/classifier.yaml` i uruchamiamy `python -m lightning_modules.classifier fit --config lightning_configs/classifier.yaml`
+    Można też dopisywać opcje do linii komend po `--config ...yaml`, np. `--data.dataloader_kwargs.batch_size=256 --trainer.max_epochs=40`.
 * Oglądanie wykresów: `tensorboard --logdir=checkpoints/ --port=6056`
 
 ## SLURM
