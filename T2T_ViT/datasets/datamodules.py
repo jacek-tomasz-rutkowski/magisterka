@@ -106,23 +106,30 @@ class GastroDataModule(BaseDataModule[GastroDataitem, GastroBatch]):
 
     num_classes: int = 2
 
-    def __init__(self, root: Path = PROJECT_ROOT / "data", *, dataloader_kwargs: DataLoaderKwargs = {}):
+    def __init__(
+        self, root: Path = PROJECT_ROOT / "data", *, cropped: bool = False, dataloader_kwargs: DataLoaderKwargs = {}
+    ):
         super().__init__(dataloader_kwargs)
         self.root = root
+        self.cropped = cropped
 
     def prepare_data(self) -> None:
-        GastroDataset(self.root)
+        GastroDataset(self.root, cropped=self.cropped)  # Just to check if the data is there.
 
     def setup(self, stage: str) -> None:
         assert stage in ["fit", "validate", "test", "predict"]
         generator = torch.Generator().manual_seed(42)  # Fix a train-val split.
-        train_ids, val_ids = random_split_sequence(range(len(GastroDataset(self.root))), [0.7, 0.3], generator)
+        train_ids, val_ids = random_split_sequence(
+            range(len(GastroDataset(self.root, cropped=self.cropped))), [0.7, 0.3], generator
+        )
 
         train_transform = GastroDataset.default_train_transform()
         val_transform = GastroDataset.default_transform()
 
-        self.train_dataset = Subset(GastroDataset(self.root, train_transform), train_ids)  # type: ignore
-        self.val_dataset = Subset(GastroDataset(self.root, val_transform), val_ids)  # type: ignore
+        self.train_dataset = GastroDataset(self.root, train_transform, cropped=self.cropped)  # type: ignore
+        self.train_dataset = Subset(self.train_dataset, train_ids)  # type: ignore
+        self.val_dataset = GastroDataset(self.root, val_transform, cropped=self.cropped)  # type: ignore
+        self.val_dataset = Subset(self.val_dataset, val_ids)  # type: ignore
         self.test_dataset = self.val_dataset
 
 
@@ -196,6 +203,7 @@ class DataModuleWithMasks(BaseDataModule[ImageLabelMaskDataitem, ImageLabelMaskB
         This is only used for training; for validation and testing these are fixed to make scores comparable.
     - dataloader_kwargs: passed to DataLoader, like batch_size=1, num_workers=0, pin_memory=False.
     """
+
     def __init__(
         self,
         wrapped_datamodule: CIFAR10DataModule | GastroDataModule,

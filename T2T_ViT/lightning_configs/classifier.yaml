@@ -1,29 +1,35 @@
 model:
-  # backbone: vit_small_patch16_224.augreg_in1k
+  backbone: vit_small_patch16_224.augreg_in1k
   # backbone: swin_tiny_patch4_window7_224.ms_in1k
-  backbone: t2t_vit_14
+  # backbone: t2t_vit_14
   optimizer_kwargs:
     opt: adamw
     lr: 5e-5
     lr_head: 1e-4
     weight_decay: 0
+    # opt: sgd
+    # lr: 0.001
+    # lr_head: 0.01
+    # weight_decay: 5e-4
     # momentum: 0.9
   scheduler_kwargs:
     sched: cosine
     warmup_epochs: 2
-    min_lr: 1e-8
+    min_lr: 1e-6
+    # min_lr: 1e-5
 
 data:
   # class_path: CIFAR10DataModule
   class_path: GastroDataModule
   init_args:
+    cropped: true
     dataloader_kwargs:
       batch_size: 256
       num_workers: 4
       pin_memory: true
 
 trainer:
-  max_epochs: 350  # ~100 for Gastro, ~30 and ~2h for CIFAR10
+  max_epochs: 300  # ~300 for Gastro, ~30 and ~2h for CIFAR10
   accumulate_grad_batches: 2
 
 seed_everything: 10

@@ -65,7 +65,7 @@ class GastroDataset(Dataset[GastroDataitem]):
     label_names = ["normal", "polyp"]
     name_to_label = {name: label for label, name in enumerate(label_names)}
 
-    def __init__(self, root: str | Path, transform: v2.Transform | None = None) -> None:
+    def __init__(self, root: str | Path, transform: v2.Transform | None = None, cropped: bool = False) -> None:
         self.root = Path(root).expanduser()
         self.transform = transform or self.default_transform()
 
@@ -76,7 +76,8 @@ class GastroDataset(Dataset[GastroDataitem]):
         self.dataitems = list[_PreGastroDataitem]()
 
         # Add images with polyps.
-        for p in sorted((self.root / "gastro-hyper-kvasir/segmented-images/images").glob("*.jpg")):
+        images_dir = self.root / "gastro-hyper-kvasir/segmented-images/images"
+        for p in sorted((images_dir).glob("*.jpg")):
             segmentation_p = self.root / "gastro-hyper-kvasir/segmented-images/masks" / p.name
             assert segmentation_p.exists(), f"Mask not found for {p.name}"
             self.dataitems.append(
@@ -87,15 +88,21 @@ class GastroDataset(Dataset[GastroDataitem]):
                     bboxes=self._dict_to_bboxes_tensor(bounding_boxes[p.stem]),
                 )
             )
+        assert len(self.dataitems) == 1000, f"Expected 1000 images in {images_dir}."
 
         # Add images without polyps.
         # changed path from images-images/images
-        for p in sorted((self.root / "gastro-hyper-kvasir/unlabeled-images-similar/images").glob("*.jpg")):
+        self.cropped = cropped
+        unlabeled_dir = self.root / "gastro-hyper-kvasir/unlabeled-images-similar/images"
+        if cropped:
+            unlabeled_dir = self.root / "gastro-hyper-kvasir/unlabeled-images-similar-cropped/images"
+        for p in sorted((unlabeled_dir).glob("*.jpg")):
             self.dataitems.append(
                 _PreGastroDataitem(
                     image_path=p, label=self.name_to_label["normal"], segmentation_path=None, bboxes=None
                 )
             )
+        assert len(self.dataitems) == 2000, f"Expected 1000 images in {unlabeled_dir}."
 
     def __getitem__(self, index: int) -> GastroDataitem:
         d = self.dataitems[index]

@@ -7,13 +7,13 @@ model:
       # path: saved_models/surrogate/cifar10/v4/player16/t2t_vit_14/
       # path: saved_models/surrogate/cifar10/v4/player196/vit_small_patch16_224/
       # path: saved_models/surrogate/cifar10/v4/player196/swin_tiny_patch4_window7_224/
-      path: saved_models/surrogate/cifar10/v4/player196/t2t_vit_14/
+      # path: saved_models/surrogate/cifar10/v4/player196/t2t_vit_14/
       # path: saved_models/surrogate/gastro/v4/player16/vit_small_patch16_224/
       # path: saved_models/surrogate/gastro/v4/player16/swin_tiny_patch4_window7_224/
       # path: saved_models/surrogate/gastro/v4/player16/t2t_vit_14/
       # path: saved_models/surrogate/gastro/v4/player196/vit_small_patch16_224/
       # path: saved_models/surrogate/gastro/v4/player196/swin_tiny_patch4_window7_224/
-      # path: saved_models/surrogate/gastro/v4/player196/t2t_vit_14/
+      path: saved_models/surrogate/gastro/v4/player196/t2t_vit_14/
     # You could also use class_path: __main__.ClassifierFromLatestCheckpoint
   backbone: copy_surrogate
   # backbone: vit_small_patch16_224.augreg_in1k
@@ -47,8 +47,10 @@ model:
 
 data:
   wrapped_datamodule:
-    class_path: CIFAR10DataModule
-    # class_path: GastroDataModule
+    # class_path: CIFAR10DataModule
+    class_path: GastroDataModule
+    init_args:
+      cropped: true
   generate_masks_kwargs:
     num_players: 196
     num_mask_samples: 2
@@ -60,7 +62,7 @@ data:
     pin_memory: true
 
 trainer:
-  max_epochs: 120  # ~120 for cifar?, ~250 for Gastro?
+  max_epochs: 250  # ~120 for cifar?, ~250 for Gastro?
   accumulate_grad_batches: 2
 
 seed_everything: 3

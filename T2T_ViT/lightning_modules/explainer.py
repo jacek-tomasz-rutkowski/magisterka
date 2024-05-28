@@ -387,7 +387,7 @@ class Explainer(L.LightningModule):
         self.log(f"{phase}/vt_mae_base", mae_diff_baseline, prog_bar=False, batch_size=bm)
 
         # "Efficiency", or gaps between the explainer's sum of SHAP values and what they should be.
-        self.log(f"{phase}/eff", efficiency_gap, prog_bar=False)
+        self.log(f"{phase}/eff", efficiency_gap, prog_bar=False, batch_size=bm)
         self.log(f"{phase}/eff_class", efficiency_class_gap, prog_bar=False, batch_size=bm)
 
         # Mean value predicted for target class.

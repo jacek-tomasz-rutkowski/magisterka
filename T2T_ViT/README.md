@@ -25,14 +25,18 @@ Contains checkpoints with model weights that we want to keep:
 - `classifier/` trenowane z `python -m lightning_modules.classifier fit --config .../config.yaml`
     - `cifar10/`
         - `v4/`
-            - `vit_small_patch16_224`        val accuracy 97.7% without masks. (powinno dać się 98.2%)
-            - `swin_tiny_patch4_window7_224` val accuracy 98.0% without masks.
-            - `t2t_vit_14`                   val accuracy 97.7% without masks.
+            - `vit_small_patch16_224`        val accuracy 97.7%. (powinno dać się 98.2%)
+            - `swin_tiny_patch4_window7_224` val accuracy 98.0%.
+            - `t2t_vit_14`                   val accuracy 97.7%.
     - `gastro/`
         - `v4/`
-            - `vit_small_patch16_224`        val accuracy 96.3% without masks. (pewnie da się lepiej)
-            - `swin_tiny_patch4_window7_224` val accuracy 98.5% without masks. (powinno dać się 99.2%)
-            - `t2t_vit_14`                   val accuracy 99.0% without masks.
+            - `vit_small_patch16_224`        val accuracy 96.3%. (pewnie da się lepiej)
+            - `swin_tiny_patch4_window7_224` val accuracy 98.5%. (powinno dać się 99.2%)
+            - `t2t_vit_14`                   val accuracy 99.0%.
+        - `v5/` uczone na gastro z "cropped"
+            - `vit_small_patch16_224`        val accuracy 90.5%.
+            - `swin_tiny_patch4_window7_224` val accuracy 91.3%.
+            - `t2t_vit_14`                   val accuracy 93.7%.
 - `surrogate`  trenowane z `python -m lightning_modules.surrogate fit --config .../config.yaml`
     -  `cifar10/`
         - `v4/`
@@ -49,42 +53,31 @@ Contains checkpoints with model weights that we want to keep:
             - `player16/`
                 - `vit_small_patch16_224`         val accuracy unmasked 97.2%, 16-masked 90.8%
                 - `swin_tiny_patch4_window7_224`  val accuracy unmasked 99.7%, 16-masked 96.1%
-                - `t2t_vit_14`                    TODO
+                - `t2t_vit_14`                    val accuracy unmasked 98.2%, 16-masked 93.3%
             - `player196/`
                 - `vit_small_patch16_224`         val accuracy unmasked 96.0%, 196-masked 93.7%
                 - `swin_tiny_patch4_window7_224`  val accuracy unmasked 99.0%, 196-masked 98.3%
-                - `t2t_vit_14`                    TODO
+                - `t2t_vit_14`                    val accuracy unmasked 98.7%, 196-masked 94.9%
+        - `v5/` uczone na gastro z "cropped"
+            - `player196/`
 - `explainer` trenowane z `python -m lightning_modules.explainer fit --config .../config.yaml`
   -  `cifar10/`
         - `v4/`
             - `player16/`
                 - `vit_small_patch16_224`         val-macc-best 65.9%,
                 - `swin_tiny_patch4_window7_224`  val-macc-best 65.0%,
-                - `t2t_vit_14`                    TODO
+                - `t2t_vit_14`                    val-macc-best 61.9%
             - `player196/`
                 - `vit_small_patch16_224`         val-macc-best 55.4%,
                 - `swin_tiny_patch4_window7_224`  val-macc-best 63.1%,
-                - `t2t_vit_14`                    TODO
+                - `t2t_vit_14`                    val-macc-best 45.2%
     - `gastro/`
         - `v4/`
             - `player16/`
                 - `vit_small_patch16_224`         val-macc-best 72.3%,
-                - `swin_tiny_patch4_window7_224`  TODO
-                - `t2t_vit_14`                    TODO
+                - `swin_tiny_patch4_window7_224`  val-macc-best 87.3% (perhaps because surrogate achieves 99.7%)
+                - `t2t_vit_14`                    val-macc-best 66.9%
             - `player196/`
                 - `vit_small_patch16_224`         val-macc-best 27.4%
-                - `swin_tiny_patch4_window7_224`  TODO
-                - `t2t_vit_14`                    TODO
-
-
-
-### Przed refactorem v4:
-
-- `explainer/cifar10/`:
-    - `v3/`:
-        - `player196/t2t_vit.ckpt`: 306 epochs, val/macc-best ~50%
-        - `player196/swin.ckpt`:    499 epochs, val/macc-best ~70% (could train for more)
-        - `player196/vit.ckpt`:     211 epochs, val/macc-best ~55%
-        - `player16/t2t_vit.ckpt`: 198 epochs, val/macc-best ~68% (100 epochs would have been fine)
-        - `player16/swin.ckpt`:    499 epochs, val/macc-best ~78%
-        - `player16/vit.ckpt`:     106 epochs, val/macc-best ~70%
+                - `swin_tiny_patch4_window7_224`  val-macc-best 64.3%
+                - `t2t_vit_14`                    val-macc-best 25.8%
