@@ -75,7 +75,13 @@ def lightning_main(
         version = version + subversion
     else:
         # If not running with slurm, set the version to the next available number, prefixed with "v" instead of "s".
-        versions = [int(p.name[1:]) for p in (checkpoints_dir / experiment_name).iterdir() if p.name.startswith("v")]
+        versions = []
+        for p in (checkpoints_dir / experiment_name).iterdir():
+            if p.name.startswith("v") and p.is_dir() and (p / "hparams.yaml").exists():
+                try:
+                    versions.append(int(p.name[1:]))
+                except ValueError:
+                    pass
         version = f"v{max(versions, default=0) + 1}"
     print(str(checkpoints_dir / experiment_name / version))
 

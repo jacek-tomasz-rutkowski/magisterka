@@ -59,7 +59,14 @@ Contains checkpoints with model weights that we want to keep:
                 - `swin_tiny_patch4_window7_224`  val accuracy unmasked 99.0%, 196-masked 98.3%
                 - `t2t_vit_14`                    val accuracy unmasked 98.7%, 196-masked 94.9%
         - `v5/` uczone na gastro z "cropped"
+            - `player16/`
+                - `vit_small_patch16_224`         val accuracy unmasked 85.7%, 16-masked 92.7%
+                - `swin_tiny_patch4_window7_224`  val accuracy unmasked 93.2%, 16-masked 88.2%
+                - `t2t_vit_14`                    val accuracy unmasked 92.7%, 16-masked 88.0%
             - `player196/`
+                - `vit_small_patch16_224`         val accuracy unmasked 92.5%, 196-masked 89.2%
+                - `swin_tiny_patch4_window7_224`  val accuracy unmasked 91.8%, 196-masked 89.1%
+                - `t2t_vit_14`                    val accuracy unmasked 93.7%, 196-masked 89.8%
 - `explainer` trenowane z `python -m lightning_modules.explainer fit --config .../config.yaml`
   -  `cifar10/`
         - `v4/`
@@ -81,3 +88,8 @@ Contains checkpoints with model weights that we want to keep:
                 - `vit_small_patch16_224`         val-macc-best 27.4%
                 - `swin_tiny_patch4_window7_224`  val-macc-best 64.3%
                 - `t2t_vit_14`                    val-macc-best 25.8%
+        - `v5/`
+            - `player196/`
+                - `vit_small_patch16_224`         val-macc-best 27.8%
+                - `swin_tiny_patch4_window7_224`  val-macc-best 44.2%
+                - `t2t_vit_14`                    val-macc-best 26.8%
