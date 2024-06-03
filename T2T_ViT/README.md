@@ -71,17 +71,27 @@ Contains checkpoints with model weights that we want to keep:
   -  `cifar10/`
         - `v4/`
             - `player16/`
-                - `vit_small_patch16_224`         val-macc-best 65.9%,
-                - `swin_tiny_patch4_window7_224`  val-macc-best 65.0%,
+                - `vit_small_patch16_224`         val-macc-best 63.6%
+                - `swin_tiny_patch4_window7_224`  val-macc-best 63.9%
                 - `t2t_vit_14`                    val-macc-best 61.9%
             - `player196/`
-                - `vit_small_patch16_224`         val-macc-best 55.4%,
-                - `swin_tiny_patch4_window7_224`  val-macc-best 63.1%,
+                - `vit_small_patch16_224`         val-macc-best 48.7%
+                - `swin_tiny_patch4_window7_224`  val-macc-best 56.5%
                 - `t2t_vit_14`                    val-macc-best 45.2%
+        - `pairs/player16/`: 9 pairs x_on_y meaning backbone x on target surrogate y.
+            - `s_on_s`: 61.5%
+            - `s_on_t`: 67.5%
+            - `s_on_v`: 64.3%
+            - `t_on_s`: 65.3%
+            - `t_on_t`: 67.8%
+            - `t_on_v`: 66.1%
+            - `v_on_s`: 66.7%
+            - `v_on_t`: 69.6%
+            - `v_on_v`: 62.9%
     - `gastro/`
         - `v4/`
             - `player16/`
-                - `vit_small_patch16_224`         val-macc-best 72.3%,
+                - `vit_small_patch16_224`         val-macc-best 62.2%
                 - `swin_tiny_patch4_window7_224`  val-macc-best 87.3% (perhaps because surrogate achieves 99.7%)
                 - `t2t_vit_14`                    val-macc-best 66.9%
             - `player196/`
@@ -93,3 +103,17 @@ Contains checkpoints with model weights that we want to keep:
                 - `vit_small_patch16_224`         val-macc-best 27.8%
                 - `swin_tiny_patch4_window7_224`  val-macc-best 44.2%
                 - `t2t_vit_14`                    val-macc-best 26.8%
+            - `player16/`
+                - `vit_small_patch16_224`         val-macc-best 59.2%
+                - `swin_tiny_patch4_window7_224`  val-macc-best 59.9%
+                - `t2t_vit_14`                    val-macc-best 64.6%
+        - `pairs/player16/`: 9 pairs x_on_y meaning backbone x on target surrogate y.
+            - `s_on_s`: 64.1%
+            - `s_on_t`: 63.0%
+            - `s_on_v`: 64.5%
+            - `t_on_s`: 65.9%
+            - `t_on_t`: 62.4%
+            - `t_on_v`: 65.0%
+            - `v_on_s`: 66.0%
+            - `v_on_t`: 63.6%
+            - `v_on_v`: 64.2%
