@@ -139,6 +139,7 @@
 
 % Tu jest dobre miejsce na Twoje własne makra i~środowiska:
 \newtheorem{defi}{Definition}[section]
+\newtheorem{thm}{Theorem}[section]
 
 % koniec definicji
 
@@ -185,23 +186,27 @@ However, such an approach does not take into account the fact that some subgroup
 \label{rewards_all}
 \end{figure}
 
-Shapley values are computed with a skillful formula that uses the rewards obtained by all the possible coalitions.
-Shapley values satisfy some natural axioms such as symmetry and "dummy player" (a player who gives nothing receives nothing).
-\todo[inline]{\emph{Additivity} to najważniejszy aksjomat, także o nim bym wspomniał; jak mówimy o uniqueness to lepiej wymienić wszystkie żeby uniknąć nieporozumień: additivity, symmetry, efficiency, and nullity. Ja to bym w ogóle definiował aksjomatycznie a wzór przedstawiał jako twierdzenie, ale to już kwestia gustu.}
-It guarantees the above-mentioned "fairness" of this method. Moreover, Shapley values are unique to satisfy these axioms [CITE]!. 
+Shapley values for a coalitional game emerged as a unique function that satisfies some natural axioms. In order to formulate them, let us introduce some notation.  Let $X$ be the set of players, $v: 2^X \rightarrow \mathbb{R}$ be a function (called coalitional game). We interpret the value $v(S), S \subseteq X$ to be the worth of the coalition $S$. Then the four axioms of Shapley values function $\phi:X  \rightarrow \mathbb{R}$ are as follows:
+\begin{itemize}
+\item \textbf{Efficiency}  $\sum_i  \phi(i) = v(X)$
+\item \textbf{Symmetry} If the players $i, j$ are symmetric (i.e. $v(S\cup \{i\}) = v(S \cup \{j\})$ for all $S \subseteq X$), then $\phi(i) = \phi(j)$
+\item \textbf{Nullity} If a players $i$ has only zero contributions (i.e. $v(S\cup \{i\}) = v(S)$ for all $S \subseteq X$, then $\phi(i) = 0$
+\item \textbf{Additivity} If there are two coalitional games $v, w$ and their corresponding Shapley value functions are $\phi, \psi$, then for every player $i$, $\phi(i) = \psi(i)$.
+\label{Shapley_axioms}
+\end{itemize}
+These axioms guarantee the above-mentioned "fairness" of this method. 
 
-Before we give the definition, let us introduce some notation. Let $X$ be the set of players, $v: 2^X \rightarrow \mathbb{R}$ be a function (called coalitional game). We interpret the value $v(S), S \subseteq X$ to be the worth of the coalition $S$.
+It turns out that the Shapley values function does not only exist for every coalitional game, but it is also unique and can be given by an exact formula \cite{ShapleyValues}.
 
-The exact formal definition is as follows.
-
-\begin{defi}\label{shap_def}
-  For the set of players $X$ and the coalitional game $v$ the Shapley value for the player $i$ is:
+\begin{thm}\label{shap_def}
+  For the set of players $X$ and the coalitional game $v$ there exists exactly one function $\phi$ that satisfies axioms \ref{Shapley_axioms}.
+The value of the function $\phi$ can be given explicitly by the formula:
   \begin{equation*}
-      \phi_i(v) = \sum_{S\subseteq X\backslash \{i\}} \frac{|S|!(|X|-|S|-1)!}{|X|!}\left(v(S \cup \{i\}) - v(S)\right).
+      \phi (i) = \sum_{S\subseteq X\backslash \{i\}} \frac{|S|!(|X|-|S|-1)!}{|X|!}\left(v(S \cup \{i\}) - v(S)\right).
   \end{equation*}
-\end{defi}
+\end{thm}
 
-In the standard Machine Learning setup, $X$ is the set of tokens (like words in NLP or patches in Computer Vision) and $v$ is for instance the classification model. Shapley values show how important given features are for the model's prediction. One of the important issues with the application of Shapley values is the way of defining $v(S)$ in the above definition. It is not always straightforward how to define the value of the coalition, or, to be more specific, how to mask-out those tokens in the input that we wish to be absent. For the NLP tasks, we can simply ignore the words not belonging to $S$, but when the input is an image, it is necessary to put something in place of the "omitted" patch in order to match the dimensions of the model input. One possible solution is zeroing-out the patches not belonging to $S$. However, this can lead to the problem of out-of-distibution (see section [CITE]! below). While the model was originally trained to fit the data on some high-dimensional manifold, putting zeros throws the input away from this manifold which can yield unexpected behavior of the model.
+In the standard Machine Learning setup, $X$ is the set of tokens (like words in NLP or patches in Computer Vision) and $v$ is for instance the classification model. Shapley values show how important given features are for the model's prediction. One of the important issues with the application of Shapley values is the way of defining $v(S)$ in the above definition. It is not always straightforward how to define the value of the coalition, or, to be more specific, how to mask-out those tokens in the input that we wish to be absent. For the NLP tasks, we can simply ignore the words not belonging to $S$, but when the input is an image, it is necessary to put something in place of the "omitted" patch in order to match the dimensions of the model input. One possible solution is zeroing-out the patches not belonging to $S$. However, this can lead to the off-manifold problem (see section \ref{s:surrogate} below). While the model was originally trained to fit the data on some high-dimensional manifold, putting zeros throws the input away from this manifold which can yield unexpected behavior of the model.
 
 
 
@@ -266,19 +271,20 @@ Another popular method is to avoid costly matrix multiplication $QK^T$ and inste
 \section{Performer}\label{r:performer}
 
 
-The key component of the Performer's architecture is \todo{the} FAVOR+ mechanism (\textit{Fast Attention Via positive Orthogonal Random features}), a new method for approximating softmax and Gaussian kernels. The standard attention can be presented in the following way:
+The key component of the Performer's architecture is the FAVOR+ mechanism (\textit{Fast Attention Via positive Orthogonal Random features}), a new method for approximating softmax and Gaussian kernels. The standard attention can be presented in the following way:
 \begin{equation}
     \textrm{Attn}(Q, K, V) = D^{-1}AV, \; A=\textrm{exp}\left(QK^T/\sqrt{d}\right), \; 
     D = \textrm{diag}\left(A1_{L}\right).
 \end{equation}\label{attention_equation}
 
-Here the matrix $D$ is introduced instead\todo{in place of the} of softmax denominator in order to have a more convenient form of the attention matrix $A$. The quadratic complexity comes from the fact that we have to apply the exponent function to the product of $Q$ and $K^T$. If we could replace the exponent by some linear function, we could multiply $K^T$ with $V$ first and thus reduce the multiplication cost\todo{See Figure \dots}. That is where the kernels come in. 
+Here the matrix $D$ is introduced in place of the of softmax denominator in order to have a more convenient form of the attention matrix $A$. The quadratic complexity comes from the fact that we have to apply the exponent function to the product of $Q$ and $K^T$. If we could replace the exponent by some linear function, we could multiply $K^T$ with $V$ first and thus reduce the multiplication cost (see Figure \ref{performer_idea}). That is where the kernels come in. 
 
 
 \begin{figure}[H]
 \centering
 \includegraphics[scale=0.5]{./images/performer.png}
 \caption{In the standard attention mechanism (on the left) we first get the $L\times L$ matrix with quadratic time complexity and then have to multiply it by $V$ also with quadratic time. Performer adopts kernels to change the multiplication order and reduce the time complexity to linear.}
+\label{performer_idea}
 \end{figure}
 
 
@@ -605,37 +611,13 @@ All the models have rather strong correlation between each other (see Figures \r
 We plotted several curves, which show the Shapley values for one image and for all 16 patches. The shapes of the curves for different models vary considerably. It is probably due to the fact that the truck has many features, which could lead to the conclusion that there is a truck in the image. There are many indicators of "truckness." On the other hand, the shapes for the "cat" class are almost perfectly consistent (see figure \ref{Cat_shapley}). The reason for this behavior of the models might be that cats are more definite beings than trucks. Models may learn that the most important feature of cat is its head while there are many other important features like legs, trunk, tail. Models assign to each of the features some proportionate importance. The features of the truck are much less sharp. For one model a white patch might enhance the probability of the truck class because it learned that the trucks are often white. For another model the same white patch might work against the truck class as it is rather indicator of the plane.
 
 
+
+
 \begin{figure}[H]
 \centering
 \includegraphics[scale=0.5]{./images/Cat_shapley.png}
 \caption{Shapley values for the cat class}
 \label{Cat_shapley}
-\end{figure}
-
-
-
-
-\begin{figure}[H]
-\centering
-\includegraphics[scale=0.5]{./images/shap_swin_t2t_vit.png}
-\caption{Shapley values correlation: Swin and T2T\textunderscore ViT}
-\label{shap_swin_t2t_vit}
-\end{figure}
-
-
-\begin{figure}[H]
-\centering
-\includegraphics[scale=0.5]{./images/shap_vit_swin.png}
-\caption{Shapley values correlation: ViT and Swin}
-\label{shap_vit_swin}
-\end{figure}
-
-
-\begin{figure}[H]
-\centering
-\includegraphics[scale=0.5]{./images/shap_vit_t2t_vit.png}
-\caption{Shapley values correlation: ViT and T2T\textunderscore ViT}
-\label{shap_vit_t2t_vit}
 \end{figure}
 
 
@@ -693,8 +675,6 @@ We presume therefore that the Shapley values are more similar for the classes wi
 
 
 
-This behavior can be seen in more fine-grained pictures for 196 players (see Figures \ref{vit_shap_grid_196} - \ref{swin_shap_grid_196}). These pictures were produced with the Shapley values computed by the explainer model (see Section \ref{s: model}), because the computation from scratch would require considering each of the $2^{196}$ coalitions. They are compatible with the values computed from scratch for 16 players, i.e., they indicate the same regions of images as important. In the Section \ref{s:evaluation} we will conduct a more thorough evalutation of the explainer model.
-
 
 
 
@@ -725,13 +705,71 @@ This behavior can be seen in more fine-grained pictures for 196 players (see Fig
 
 
 
+This behavior can be seen in more fine-grained pictures for 196 players (see Figures \ref{vit_shap_grid_196} - \ref{swin_shap_grid_196}). These pictures were produced with the Shapley values computed by the explainer model (see Section \ref{s: model}), because the computation from scratch would require considering each of the $2^{196}$ coalitions. They are compatible with the values computed from scratch for 16 players, i.e., they indicate the same regions of images as important. In the Section \ref{s:evaluation} we will conduct a more thorough evalutation of the explainer model.
+
+
+
+
+In order to investigate the connections between the Shapley values computed by several methods, we computed their correlations and other coefficients. We plotted example correlations in the Figures \ref{true_swin_swin_cifar} - \ref{swin_vit_cifar} (other pairs look very similar). 
+
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.5]{./images/true_swin_swin_cifar.png}
+\caption{Ground-truth Shapley values vs Shapley values computed using the explainer model}
+\label{true_swin_swin_cifar}
+\end{figure}
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.5]{./images/swin_vit_cifar.png}
+\caption{Shapley values computed by the explainer models for Swin and ViT surrogates}
+\label{swin_vit_cifar}
+\end{figure}
+
+We can see that the Shapley values computed by the explainer model highly correlates with the ground-truth, however, it is somehow rescaled so that there is not exact match. On the other hand, explainer models for other surrogates give scattered Shapley values but they lie around the $y=x$ line. In the Table \ref{t:shap_cifar_correlations} are presented the correlation and error metrics. The ground-truth Shapley values have rather high correlation with these computed by the explainer models, but they differ considerably and give also high error rates, MAE and RMSE.
+
+
+\begin{center}
+\begin{tabular}{clSSSSS}
+\toprule
+& Metric  & { Pearson's corr target} &  {MAE target } &  { RMSE target} \\
+\midrule
+& {gt-ViT-ViT} & 0.83 & 0.61 &  0.73 \\
+& {gt-T2T\textunderscore ViT-T2T\textunderscore ViT}  & 0.80& 0.63 & 0.75 \\
+& gt-Swin-Swin &  0.76 &  0.80 & 0.94 \\
+& ViT-T2T\textunderscore ViT &  \textbf{0.86} & \textbf{0.21} &  \textbf{0.27} \\
+& T2T\textunderscore ViT-Swin &  0.83 &  0.28 & 0.37 \\
+& T2T\textunderscore ViT-Swin  & 0.85 &  0.29 &  0.37 \\
+\midrule
+\bottomrule
+\end{tabular}
+\label{t:shap_cifar_correlations}
+\end{center}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
 
 \section{HyperKvasir Explanations}\label{s:HyperKvasir Explanations}
 
-For the HyperKvasir, we have noticed an interesting issue with the models. Namely, they tended to classify images by some incidental features. Images with polyps and without polyps have another colours, some additional subtitles and edges. The models sometimes pick these properties up. It can be hardly noticed even by a thorough inspection of the models' false predictions on the masked images (see Figure \ref{gastro_vit_masked}) 
+For the HyperKvasir dataset, we have noticed an interesting issue with the models. Namely, they tended to classify images by some incidental features. Images with polyps and without polyps have another colours, some additional subtitles and edges. The models sometimes pick these properties up. It can be hardly noticed even by a thorough inspection of the models' false predictions on the masked images (see Figure \ref{gastro_vit_masked}) 
 
 \begin{figure}[H]
 \centering
@@ -762,14 +800,13 @@ When we noticed the above mentioned issue with the HyperKvasir dataset, we decid
 \begin{figure}[H]
 \centering
 \includegraphics[scale=0.5]{./images/cropped_shap_gastro.png}
-\caption{After cropping, the surrogate learns to focus on the true features}
+\caption{After cropping, the surrogate learns to focus on the genuine features}
 \label{Shapley values for 196 players cropped gastro}
 \end{figure}
 
 
 
-Cropping of the images caused a considerable decrease of accuracy (see figure 
-\ref{t:gastro_drop_accuracy}).
+Cropping of the images caused a considerable decrease in accuracy (see Table \ref{t:gastro_drop_accuracy}).
 
 
 
@@ -787,11 +824,53 @@ Cropping of the images caused a considerable decrease of accuracy (see figure
 \midrule
 
 \bottomrule
-\label{t:gastro_drop_accuracy}
 \end{tabular}
+\label{t:gastro_drop_accuracy}
 \end{center}
 
 
+Similarily as for the CIFAR-10 dataset, we checked the relations between the Shapley values computed in different ways. We can see both by metrics (see Table \ref{t:shap_gastro_correlations}) and by the plots (Figures \ref{true_swin_swin_gastro} - \ref{vit_swin_gastro}) that the Shapley values differ considerably.
+
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.5]{./images/correlation_swin_gastro.png}
+\caption{Ground-truth Shapley values vs Shapley values computed using the explainer model}
+\label{true_swin_swin_gastro}
+\end{figure}
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.5]{./images/vit_swin_gastro.png}
+\caption{Shapley values computed by the explainer models for Swin and ViT surrogates}
+\label{vit_swin_gastro}
+\end{figure}
+
+
+
+\begin{center}
+\begin{tabular}{clSSSSS}
+\toprule
+& Metric  & { Pearson's corr target} &  {MAE target } &  { RMSE target} \\
+\midrule
+& {gt-ViT-ViT} 
+& 0.57 & 0.20 &  0.30 \\
+& {gt-T2T\textunderscore ViT-T2T\textunderscore ViT}  
+& 0.60 & 0.18 & 0.25 \\
+& gt-Swin-Swin 
+&  \textbf{0.77} &  0.18 & 0.25 \\
+& ViT-T2T\textunderscore ViT &  0.70 & 0.17 &  0.23 \\
+& T2T\textunderscore ViT-Swin 
+&  0.72 &  \textbf{0.15} & \textbf{0.20} \\
+& T2T\textunderscore ViT-Swin  
+& 0.66 &  0.17 &  0.24 \\
+\midrule
+\bottomrule
+\label{t:shap_gastro_correlations}
+\end{tabular}
+\end{center}
  
 
 
@@ -823,31 +902,73 @@ The Shapley values are well-grounded theoretically, so they can serve as a basel
 
 
 
-As it was already mentioned, HyperKvasir dataset provides the ground-truth segmentation masks that indicate where exactly are the polyps. Therefore, we can use these masks for the evaluation of the explanations. In the Figures 
+As it was already mentioned, HyperKvasir dataset provides the ground-truth segmentation masks that indicate where exactly are the polyps. Therefore, we can use these masks for the evaluation of the explanations. In the Figures \ref{segm_shap} -  \ref{segm_shap_2} are displayed the Shapley values computed by the explainer models together with the segmentation mask of the polyps. 
 
 
 
 
 \begin{figure}
 \centering
-\begin{subfigure}[b]{0.55\textwidth}
+
+\begin{subfigure}{0.55\textwidth}
+   \includegraphics[width=1\linewidth]{./images/gastro_shap_for_segm_1.png}
+   \caption{}
+   \label{fig:Ng2}
+\end{subfigure}
+\begin{subfigure}{0.55\textwidth}
+   \includegraphics[width=1\linewidth]{./images/gastro_shap_for_segm_swin.png}
+   \caption{}
+   \label{fig:Ng2}
+\end{subfigure}
+\begin{subfigure}{0.55\textwidth}
+   \includegraphics[width=1\linewidth]{./images/gastro_shap_for_segm_t2t_vit.png}
+   \caption{}
+   \label{fig:Ng2}
+\end{subfigure}
+\begin{subfigure}{0.55\textwidth}
    \includegraphics[width=1\linewidth]{./images/gastro_segmentation_1.png}
    \caption{}
    \label{fig:Ng1} 
 \end{subfigure}
 
-\begin{subfigure}[b]{0.55\textwidth}
-   \includegraphics[width=1\linewidth]{./images/gastro_shap_for_segm_1.png}
+
+
+\caption{Segmentations of the masks together with the Shapley values for three models: ViT, Swin, and T2T\textunderscore ViT, respectively}
+\label{segm_shap}
+\end{figure}
+
+
+
+
+\begin{figure}
+\centering
+\begin{subfigure}{0.55\textwidth}
+   \includegraphics[width=1\linewidth]{./images/gastro_shap_for_segm_vit_2.png}
    \caption{}
    \label{fig:Ng2}
 \end{subfigure}
-
-\caption[Two numerical solutions]{(a) Numerical solutions for the small-time system 
-with a constant-curvature body shape showing the scaled leading-order veritcal 
-reaction force $N_0$ versus the scaled body mass $M$ for various values of $g$. 
-Again, $I=M$ for definiteness and $A=0.7$. (b) As for (a) but over a wider range of 
-values of $M,I$.}
+\begin{subfigure}{0.55\textwidth}
+   \includegraphics[width=1\linewidth]{./images/gastro_shap_for_segm_swin_2.png}
+   \caption{}
+   \label{fig:Ng2}
+\end{subfigure}
+\begin{subfigure}{0.55\textwidth}
+   \includegraphics[width=1\linewidth]{./images/gastro_shap_for_segm_t2t_vit_2.png}
+   \caption{}
+   \label{fig:Ng2}
+\end{subfigure}
+\begin{subfigure}{0.55\textwidth}
+   \includegraphics[width=1\linewidth]{./images/gastro_segmentation_2.png}
+   \caption{}
+   \label{fig:Ng1} 
+\end{subfigure}
+\caption{Segmentations of the masks together with the Shapley values for three models: ViT, Swin, and T2T\textunderscore ViT, respectively}
+\label{segm_shap_2}
 \end{figure}
+
+
+We can see that the Swin model indicates the patches in the most confident manner, however, these patches do not necessarily contain the polyps, as it is the case for the Figure \ref{segm_shap_2} for the second and the third images. In order to get a more rigorous evaluation of the explainer models, we can treat them as segmentation models and check their performance using standard metrics like Dice, IoU, precision, and recall. The output of the explainer model has shape $(\textrm{batch size}, \textrm{number of players})$, so we have to reshape it. We do this by repeating on the whole patch the Shapley value obtained by the explainer. Then we have to choose some threshold value to decide which pixels belong to the polyp.
+
 
 
 
@@ -1012,15 +1133,15 @@ On the Figure \ref{im: masked_saliency_accuracy_vit} we can see that the salienc
 
 \begin{figure}
 \centering
-\begin{subfigure}{.7\textwidth}
+\begin{subfigure}{.6\textwidth}
   \centering
-  \includegraphics[width=.8\linewidth]{./images/masking_explainer_patches_accuracy_half-0.png}
+  \includegraphics[width=.6\linewidth]{./images/masking_explainer_patches_accuracy_half-0.png}
   \caption{Explainer}
   \label{fig:sub1}
 \end{subfigure}%
-\begin{subfigure}{.7\textwidth}
+\begin{subfigure}{.6\textwidth}
   \centering
-  \includegraphics[width=.8\linewidth]
+  \includegraphics[width=.6\linewidth]
 {./images/masking_saliency_patches_accuracy_vit_half-0.png}
   \caption{Saliency}
   \label{fig:sub2}
@@ -1032,15 +1153,15 @@ On the Figure \ref{im: masked_saliency_accuracy_vit} we can see that the salienc
 
 \begin{figure}
 \centering
-\begin{subfigure}{.7\textwidth}
+\begin{subfigure}{.6\textwidth}
   \centering
-  \includegraphics[width=.8\linewidth]{./images/masking_explainer_patches_accuracy_t2t_vit_half-0.png}
+  \includegraphics[width=.6\linewidth]{./images/masking_explainer_patches_accuracy_t2t_vit_half-0.png}
   \caption{Explainer}
   \label{fig:sub1}
 \end{subfigure}%
-\begin{subfigure}{.7\textwidth}
+\begin{subfigure}{.6\textwidth}
   \centering
-  \includegraphics[width=.8\linewidth]
+  \includegraphics[width=.6\linewidth]
 {./images/masking_saliency_patches_accuracy_t2t_vit_half-0.png}
   \caption{Saliency}
   \label{fig:sub2}
@@ -1052,15 +1173,15 @@ On the Figure \ref{im: masked_saliency_accuracy_vit} we can see that the salienc
 
 \begin{figure}
 \centering
-\begin{subfigure}{.7\textwidth}
+\begin{subfigure}{.6\textwidth}
   \centering
-  \includegraphics[width=.8\linewidth]{./images/masking_explainer_patches_accuracy_swin_half-0.png}
+  \includegraphics[width=.6\linewidth]{./images/masking_explainer_patches_accuracy_swin_half-0.png}
   \caption{Explainer}
   \label{fig:sub1}
 \end{subfigure}%
-\begin{subfigure}{.7\textwidth}
+\begin{subfigure}{.6\textwidth}
   \centering
-  \includegraphics[width=.8\linewidth]
+  \includegraphics[width=.6\linewidth]
 {./images/masking_saliency_patches_accuracy_swin_half-0.png}
   \caption{Saliency}
   \label{fig:sub2}
@@ -1088,15 +1209,15 @@ On the other hand, explainer recognizes the important features very precisely, s
 
 \begin{figure}
 \centering
-\begin{subfigure}{.7\textwidth}
+\begin{subfigure}{.6\textwidth}
   \centering
-  \includegraphics[width=.8\linewidth]{./images/vit_gastro_masking_explainer_patches_accuracy_half-0.png}
+  \includegraphics[width=.6\linewidth]{./images/vit_gastro_masking_explainer_patches_accuracy_half-0.png}
   \caption{Explainer HyperKvasir}
   \label{fig:sub1}
 \end{subfigure}%
-\begin{subfigure}{.7\textwidth}
+\begin{subfigure}{.6\textwidth}
   \centering
-  \includegraphics[width=.8\linewidth]
+  \includegraphics[width=.6\linewidth]
 {./images/vit_gastro_masking_saliency_patches_accuracy_half-0.png}
   \caption{Saliency HyperKvasir}
   \label{fig:sub2}
@@ -1118,15 +1239,15 @@ On the other hand, explainer recognizes the important features very precisely, s
 
 \begin{figure}
 \centering
-\begin{subfigure}{.7\textwidth}
+\begin{subfigure}{.6\textwidth}
   \centering
-  \includegraphics[width=.8\linewidth]{./images/t2t_vit_gastro_masking_explainer_patches_accuracy_half-0.png}
+  \includegraphics[width=.6\linewidth]{./images/t2t_vit_gastro_masking_explainer_patches_accuracy_half-0.png}
   \caption{Explainer HyperKvasir}
   \label{fig:sub1}
 \end{subfigure}%
-\begin{subfigure}{.7\textwidth}
+\begin{subfigure}{.6\textwidth}
   \centering
-  \includegraphics[width=.8\linewidth]
+  \includegraphics[width=.6\linewidth]
 {./images/t2t_vit_gastro_masking_saliency_patches_accuracy_half-0.png}
   \caption{Saliency HyperKvasir}
   \label{fig:sub2}
@@ -1152,15 +1273,15 @@ On the other hand, explainer recognizes the important features very precisely, s
 
 \begin{figure}
 \centering
-\begin{subfigure}{.7\textwidth}
+\begin{subfigure}{.6\textwidth}
   \centering
-  \includegraphics[width=.8\linewidth]{./images/swin_gastro_masking_explainer_patches_accuracy_half-0.png}
+  \includegraphics[width=.6\linewidth]{./images/swin_gastro_masking_explainer_patches_accuracy_half-0.png}
   \caption{Explainer HyperKvasir}
   \label{fig:sub1}
 \end{subfigure}%
-\begin{subfigure}{.7\textwidth}
+\begin{subfigure}{.6\textwidth}
   \centering
-  \includegraphics[width=.8\linewidth]
+  \includegraphics[width=.6\linewidth]
 {./images/swin_gastro_masking_saliency_patches_accuracy_half-0.png}
   \caption{Saliency HyperKvasir}
   \label{fig:sub2}
