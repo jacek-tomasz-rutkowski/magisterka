@@ -1,5 +1,8 @@
+
 \documentclass[magisterska,en]{pracamgr}
 
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
 \usepackage{microtype}
 \usepackage{csquotes}
 \usepackage{graphicx}
@@ -9,11 +12,13 @@
 \usepackage{amssymb}
 \usepackage{float}
 \usepackage{multirow,booktabs,siunitx}
-\usepackage{biblatex} %Imports biblatex package
+\usepackage[backend=bibtex]{biblatex} %Imports biblatex package
 \usepackage{todonotes}
-%\usepackage[demo]{graphicx}
-\usepackage{caption}
+% \usepackage[demo]{graphicx}
+ \usepackage{caption}
 \usepackage{subcaption}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
 \usepackage[normalem]{ulem}
 
 \DeclareUnicodeCharacter{2212}{-}
@@ -51,11 +56,23 @@
 
 
 
+
+
+
+
+
 % Dane magistranta:
 \autor{Jacek Rutkowski}{371580}
+
+
+
 \title{Interpretability and Efficiency of Sparse Transformers}
 \titlepl{Wyjaśnialność i efektywność rzadkich transformerów}
+
+%\tytulang{An implementation of a difference blabalizer based on the theory of $\sigma$ -- $\rho$ phetors}
+
 \kierunek{Computer Science}
+
 
 \opiekun{dr Marcin Wrochna\\
   MIMUW\\
@@ -65,7 +82,7 @@
 % \date{June 2024}
 
 %Podać dziedzinę wg klasyfikacji Socrates-Erasmus:
-\dziedzina{
+\dziedzina{ 
 %11.0 Matematyka, Informatyka:\\
 %11.1 Matematyka\\
 %11.2 Statystyka\\
@@ -141,7 +158,7 @@ Shapley values for a coalitional game emerged as a unique function that satisfie
 \item \textbf{Additivity} If there are two coalitional games $v, w$ and their corresponding Shapley value functions are $\phi, \psi$, then for every player $i$, $\phi(i) = \psi(i)$.
 \label{Shapley_axioms}
 \end{itemize}
-These axioms guarantee the above-mentioned "fairness" of this method.
+These axioms guarantee the above-mentioned "fairness" of this method. 
 
 It turns out that the Shapley values function does not only exist for every coalitional game, but it is also unique and can be given by an exact formula \cite{ShapleyValues}.
 
@@ -170,7 +187,7 @@ In the field of XAI, Shapley values are referred to as a model-agnostic method o
 
 \section{Sparse transformers}
 Transformer \cite{DBLP:conf/nips/VaswaniSPUJGKP17} is a deep learning model that was originally proposed as a sequence-to-sequence model \cite{DBLP:conf/nips/SutskeverVL14} for machine translation. The main advantage of transformers over previous state of the art RNN or LSTM models is their ability to capture long-range dependencies in the input sequences. While RNN and LSTM process the input sequentially, transformers manage all the input sequence simultaneously \cite{DBLP:journals/corr/abs-2306-07303}.
-Besides language related applications, transformers turned out to be successful also in computer vision \cite{DBLP:conf/iclr/DosovitskiyB0WZ21} or audio processing \cite{DBLP:journals/corr/abs-2106-04554}.
+Besides language related applications, transformers turned out to be successful also in computer vision \cite{DBLP:conf/iclr/DosovitskiyB0WZ21} or audio processing \cite{DBLP:journals/corr/abs-2106-04554}. 
 
 Transformer is the sequence-to-sequence model divided into encoder and decoder models. Each of them is a stack of $L$ identical blocks. The encoder consists of multi-head self-attention module, which is the core element of transformer and a linear layer on top of it. Decoder has a similar architecture. Apart from the encoder components, it inserts a sub-layer that performs the self-attention over the output from the encoder. Another modification is masking, which prevents the decoder from attending to subsequent positions. It ensures that predictions for the $i$-th token depend only on the previous tokens. The overall architecture of the vanilla Transformer architecture is given in figure \ref{attention}.
 
@@ -188,7 +205,7 @@ The core component of the Transformer architecture is the attention module, whic
     Let $Q \in \mathbb{R}^{N\times D_k}$, $K \in \mathbb{R}^{M\times D_k}$ and $V \in \mathbb{R}^{M\times D_v}$ be matrices. The scale dot-product attention is given by
         \begin{equation*}
         \normalfont
-        \textrm{Attention} \left( Q, K, V \right) = \textrm{softmax}\left(\frac{QK^T}{\sqrt{D_k}} \right) V.
+        \textrm{Attention} \left( Q, K, V \right) = \textrm{softmax}\left(\frac{QK^T}{\sqrt{D_k}} \right) V.  
     \end{equation*}
 
 \end{defi}
@@ -220,7 +237,7 @@ Another popular method is to avoid costly matrix multiplication $QK^T$ and inste
 
 The key component of the Performer's architecture is the FAVOR+ mechanism (\textit{Fast Attention Via positive Orthogonal Random features}), a new method for approximating softmax and Gaussian kernels. The standard attention can be presented in the following way:
 \begin{equation}
-    \textrm{Attn}(Q, K, V) = D^{-1}AV, \; A=\textrm{exp}\left(QK^T/\sqrt{d}\right), \;
+    \textrm{Attn}(Q, K, V) = D^{-1}AV, \; A=\textrm{exp}\left(QK^T/\sqrt{d}\right), \; 
     D = \textrm{diag}\left(A1_{L}\right).
 \end{equation}\label{attention_equation}
 
@@ -248,8 +265,6 @@ In our case we have a matrix $A$ as defined in \ref{attention_equation} which we
 If there exists such a probabilistic space and random maps $\phi$ in this space such that the equation \ref{kernel_def} holds, then we could put the matrix $V$ in the attention definition \ref{attention_def} inside the expected value and multiply $\phi(k_j^T)$ by the matrix $V$ and only then by $q_i$. That is the "FA" (\textit{Fast Attention}) part of the FAVOR+ acronym.
 
 
-MOŻE JESZCZE COŚ O TYM, ŻE ZWYKLE KERNELE STOSUJE SIĘ W DRUGĄ STRONĘ?
-
 Not every kernel which satisfies \ref{kernel_attention} is suitable for approximation. If we use, for instance, trigonometric functions, it leads to unstable behavior and big variance, especially when kernel scores are close to zero (which is the case for $A$ because many of its entries correspond to tokens of low relevance). It is the case if we take:
 \begin{equation}
     \phi(x) = \frac{\textrm{exp}(||x||^2/2)}{\sqrt{m}}\left(sin(\omega _1^T x), \ldots, sin(\omega _m^T x), cos(\omega _1^T x), \ldots, cos(\omega _m^T x)\right),
@@ -270,7 +285,7 @@ T2T\textunderscore ViT \ref{0007DBLP:conf/iccv/0007CWYSJTFY2121} is a visual tra
 \begin{figure}[H]
 \centering
 \includegraphics[scale=0.6]{./images/T2T_ViT_architecture.png}
-\caption{T2T\textunderscore ViT basic block. Source: \cite{0007DBLP:conf/iccv/0007CWYSJTFY2121}}.
+\caption{T2T\textunderscore ViT basic block. Source: \cite{DBLP:conf/iccv/0007CWYSJTFY21}}.
 \label{im: T2T architecture}
 \end{figure}
 
@@ -352,14 +367,14 @@ where $p(s)$ is the distribution over subsets. This loss has a theoretical guara
 i.e. the optimal model $g(\mathbf{x_s})$ outputs the expected prediction given the available information about unmasked input $x$. With such a model we are able to provide more robust and trustworthy model outputs on the masked images. It is needed both for computing the Shapley values from scratch and for the explainer model.
 
 \section{Model for Shapley values computation}\label{s:model}
-Using surrogate model we can introduce the coalitional game $v_{xy}(s) = g_y(x_s;\beta)$, where $y$ is one of the classes and $s$ some subset of image patches. Instead of training a neural network on some ground truth Shapley values one can use an optimization-based characterization of the Shapley value
+Using surrogate model we can introduce the coalitional game $v_{xy}(s) = g_y(x_s;\beta)$, where $y$ is one of the classes and $s$ some subset of image patches. Instead of training a neural network on some ground truth Shapley values one can use an optimization-based characterization of the Shapley value 
 
 [CITE! Charnes et al. 1988 (Extremal Principle Solutions of Games in Characteristic Function Form: Core, Chebychev and Shapley Value Generalizations)]
 
 This characterization allows to find the Shapley values by minimizing the following objective introduced in \cite{DBLP:conf/iclr/JethaniSCLR22}:
 \begin{equation}
     \begin{split}
-        \mathcal{L}(\theta) &= \mathbb{E}_{p(x,y)} \mathbb{E}_{p(s)}  \left[\left(v_{xy}(\mathbf{s})-v_{xy}(\mathbf{0} -\mathbf{s}^T \phi _{ViT}(\mathbf{x},\mathbf{y};\theta)\right)^2\right]
+        \mathcal{L}(\theta) &= \mathbb{E}_{p(x,y)} \mathbb{E}_{p(s)}  \left[\left(v_{xy}(\mathbf{s})-v_{xy}(\mathbf{0} -\mathbf{s}^T \phi _{ViT}(\mathbf{x},\mathbf{y};\theta)\right)^2\right] 
         \\
         &    \textrm{s.t.  } \mathbf{1}^T \phi _{ViT}(x,y;\theta) = v_{xy}(\mathbf{1}) - v_{xy}(\mathbf{0}) \textrm{    for all   } x,y,
     \end{split}
@@ -371,7 +386,7 @@ where $p(\mathbf{s})$ is a distribution defined as $p(s) \propto (\mathbf{1}^Ts 
 
 \chapter{Experiments}\label{r:experiments}
 We conduct experiments on CIFAR-10 and HyperKvasir, which is the largest available gastrointensinal dataset. Both sets are well-suited to the task of explanation because they have quite easily observable important patches which we expect to be marked as such by explanation techniques. CIFAR-10 is a well known dataset with everyday life classes such as car, bird, cat, dog, and truck.
-HyperKvasir is a more specialistic dataset that contains gastrointestinal images with some disabilities\todo{\tiny raczej np. \textit{various findings}, \textit{complications}, czy \textit{abnormal growths}}.
+HyperKvasir is a more specialistic dataset that contains gastrointestinal images with some abnormal growths.
 As is often the case with the medical data, some findings occur more frequently than others, which makes the data classes imbalanced. To overcome this issue, we have chosen 1000 images with polyps and 1000 images without polyps. In this way, we were able to train more reliable classifier models.
 
 A considerable advantage of the HyperKvasir dataset is that it provides some ground truth for explanation. Together with images there are segmented images with assigned anomalies. Therefore, explanations will give us information on whether the model predictions are based on patches where anomalies indeed appear or whether the model takes random or arbitrary features, like was the case with the famous husky misclassification example (see figure \ref{husky}).
@@ -401,16 +416,15 @@ The overall experiments were conducted in three stages. At first, we trained cla
 
 For both classifier and surrogate models, we used batch size $64$, learning rate $5e-5$, and AdamW optimizer. The explainer model requires more hyperparameters. The most important of them is freeze\textunderscore backbone, which decides how many layers to freeze from the explainer backbone. It was noted in \ref{DBLP:conf/iclr/Covert0L23} that ViTs are difficult to train, and we find that fine-tuning is important to train the explainer effectively. We performed experiments to verify which freezing strategy works best. We took into consideration three options: freeze all the layers, freeze all the layers except the last two, and no freezing. We found out that the last option, being the slowest, gave the best results.
 
-Overall, we trained 6 classifier models (3 model types, 2 datasets), 12 surrogate models (3 model types, 2 datasets, and 2 number of players: either 16 or 196), and 48 explainer models (3 explainers to explain each of 12 surrogate models).
-\todo[inline]{\tiny jakoś zaznacz że to tylko finalne modele, np. ``Overall, after various experiments with hyperparameters, the final setup included:''}
+Overall, after various experiments with hyperparameters, the final setup included: 6 classifier models (3 model types, 2 datasets), 12 surrogate models (3 model types, 2 datasets, and 2 number of players: either 16 or 196), and 48 explainer models (3 explainers to explain each of 12 surrogate models).
 
 
 \section{Image classification on CIFAR-10 and HyperKvasir}
 
-For image classification we used two sparse transformers (Swin and \sout{Performer}\todo{\tiny T2T\_ViT [with Performer attention]}) described in Section~\ref{r:sparse_transformers}, pretrained on the ImageNet dataset. We used also the plain Visual Transformer (ViT) \cite{DBLP:conf/iclr/DosovitskiyB0WZ21}. In later sections we will focus on differences between ViT and sparse transformers both in terms of performance and interpretability.
+For image classification we used two sparse transformers (Swin and T2T\textunderscore ViT [with Performer attention]) described in Section~\ref{r:sparse_transformers}, pretrained on the ImageNet dataset. 
+We used also the plain Visual Transformer (ViT) \cite{DBLP:conf/iclr/DosovitskiyB0WZ21}. In later sections we will focus on differences between ViT and sparse transformers both in terms of performance and interpretability. 
 
-For the training we used the standard augmentation techniques like RandomResizedCrop, RandomHorizontalFlip or RandomRotation. HyperKvasir images had to be resized to fit the models' input size $(224\times 224)$.
-\todo[inline]{\small HyperKvasir jest mniejszy i łatwiejszy, dlatego używa dużo mocniejszych augmentacji i z powodu tych augmentacji ma stosunkowo niższe wyniki classifierów.}
+For the training, we used standard augmentation techniques like RandomResizedCrop, RandomHorizontalFlip, or RandomRotation. HyperKvasir images had to be resized to fit the models' input size $(224\times 224)$. HyperKvasir has much less data than CIFAR-10, so we used more augmentations. That is why classifiers obtain considerably smaller results on this dataset.
 
 The accuracy results of transfer learning are given below.
 \\
@@ -420,33 +434,86 @@ The accuracy results of transfer learning are given below.
 \caption{Accuracy of classifiers after fine-tuning on CIFAR-10 and HyperKvasir datasets.}
 \begin{tabular}{clSSSSS}
 \toprule
-& Model&  {HyperKvasir} &   {CIFAR-10} \\
+% \multicolumn{2}{c}    {Trained Data}    &   
+
+& Model&  {HyperKvasir} &   {CIFAR-10} & {Params number} \\
+
 \midrule
-                &   ViT         &   90.5    &   97.7\\
-                &   T2T\textunderscore ViT       &   93.7    &   97.7\\
-                &   Swin      &   91.3    &   98.0\\
+                &   ViT         &   90.5    &   97.7 & 20.7 M \\
+                &   T2T\textunderscore ViT       &   93.7    &   97.7 & 20.2\\
+                &   Swin      &   91.3    &   98.0 & 26.3 M\\
 \midrule
+
 \bottomrule
 \end{tabular}
 \end{center}
 \end{table}
-\todo{\tiny Dodać do tabelki rozmiar każdego modelu (liczba parametrów)}
+
 
 \section{Surrogate models}
 In section \ref{s:surrogate} we briefly introduced surrogate models and explained why it is useful to additionaly train them. Here we provide the results together with more details.
 
-A surrogate model is a classification model trained on the masked inputs to resemble the outputs of another model. To train the surrogate model we need to prepare the masked data.
-We have two masking approaches, each of them having its drawbacks and advantages. For both datasets (CIFAR-10 and HyperKvasir) we resize the image to the size $224\times 224$. In the first setup we divide image into $4\times 4$ square patches consisting of $56\times 56$ pixels. In the second setup we divide image into $14\times 14$ square patches consisting of $16\times 16$ pixels. Thus, we have either 16 or 196 players. In the first case we have $2^{16}=65,536$ coalitions. This number is small enough to make feasible the computation of Shapley values from scratch.
-\todo[inline]{\small Trochę niezrozumiałe, najpierw bym powiedział że wszystko resize'ujemy do 224, potem że maskujemy np. ``either one of 4x4 or one of 16x16 patches, consisting of 56x56 or 16x16 pixels respectively.'', potem thus we have either 16 or 196 players, potem zalety 16, a na koniec dopisać zalety 196 (np. more precise and interpretable attributions).}
-
-At the beginning, we present the performance of surrogate models.
-Below\todo{gdzie?} are images from a batch of masked CIFAR-10 images, with marked predicted classes (green if correct, red for misclassification). One can notice that all three models make mistakes practically only for the completely or almost completely masked images.
+A surrogate model is a classification model trained on the masked inputs to resemble the outputs of another model. To train the surrogate model we need to prepare the masked data. This preparation procedure looks as follows.
+For both datasets (CIFAR-10 and HyperKvasir) we resize the image to the size $224\times 224$. Each pixel belongs to either one of $4\times 4$ or one of $16\times 16$ patches, consisting of $56\times 56$ or $16\times 16$ pixels respectively. We treat these patches as players. Thus we have either $4\times 4$ or $16\times 16$ players. 
+In the first case we have $2^{16}=65,536$ coalitions. This number is small enough to make feasible the computation of Shapley values from scratch. It enables us to make comparisons with the explainer models. For 196 players, the computation from scratch would be too long, so we have to use the explainer models. The explanations for more players give more precise and interpretable attributions. For instance, if we have to explain the model output for the class "cat," the $56\times 56$ patches can contain many cat features, and only explaining the $16\times 16$ patches could give a fine-grained response on which features were crucial.
 
 
 
+At the beginning, we present the performance of surrogate models. Below (Figures \ref{vit_classifier_masks}-\ref{swin_classifier_masks}) are presented the images from the batch of masked CIFAR-10 images with marked predicted classes (green if correct, red for misclassification). One can notice that all three models make mistakes practically only for the completely or almost completely masked images.
 
-In order to see how the performance was improved due to the additional training on the masked data, we can view similar image grids for the vanilla classifier model. We can see that it makes about two times as many mistakes, except for the swin model, for which the surrogate has smaller advantage. This unexpected behavior of the Swin model is reflected also in the accuracy results where the Swin model is the best both for surrogate and the vanilla model.
-\todo[inline]{\small W liczbach nie widzę żeby swin jakoś wyraźnie odstawał, można powiedzieć krócej że ma najlepsze wyniki na maskowanych inputach. Warto zwrócić uwagę że surrogate działają lepiej na nie-maskowanych inputach, zatem maskowanie działa jak augmentacja.}
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.5]{./images/vit_classifier_masks.png}
+\caption{Vit classifier model}
+\label{vit_classifier_masks}
+\end{figure}
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.5]{./images/t2t_vit_classifier_masks.png}
+\caption{T2t\textdel after removing features computed by explainer or saliency methodscore vit surrogate model}
+\label{t2t_vit_classifier_masks}
+\end{figure}
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.5]{./images/swin_classifier_masks.png}
+\caption{Swin classifier model}
+\label{swin_classifier_masks}
+\end{figure}
+
+
+
+
+In order to see how the performance was improved due to the additional training on the masked data, we can view similar image grids for the vanilla classifier model (Figures \ref{vit_surrogate_masks} - \ref{swin_surrogate_masks}) . We can see that Swin has the best results on the masked inputs. Note that surrogate models obtain better results than their classifier counterparts on the unmasked images. We may therefore say that masking works as data augmentation.
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.5]{./images/vit_surrogate_masks.png}
+\caption{Vit surrogate model}
+\label{vit_surrogate_masks}
+\end{figure}
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.5]{./images/t2t_vit_surrogate_masks.png}
+\caption{T2T\textdel after removing features computed by explainer or saliency methodscore vit surrogate model}
+\label{t2t_vit_surrogate_masks}
+\end{figure}
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.5]{./images/swin_surrogate_masks.png}
+\caption{Swin surrogate model}
+\label{swin_surrogate_masks}
+\end{figure}
+
+
 
 \begin{table}[H]
 \begin{center}
@@ -454,9 +521,9 @@ In order to see how the performance was improved due to the additional training 
 \begin{tabular}{clSSSSS}
 \toprule
 
-% \multicolumn{2}{c}    {Trained Data}    &
+% \multicolumn{2}{c}    {Trained Data}    &   
 
-& Model&  {Vanilla unmasked} &   {Surrog unmasked}
+& Model&  {Vanilla unmasked} &   {Surrog unmasked} 
 & {Vanilla masked}
 & {Surrog masked}
 \\
@@ -485,9 +552,9 @@ In order to see how the performance was improved due to the additional training 
 \begin{tabular}{clSSSSS}
 \toprule
 
-% \multicolumn{2}{c}    {Trained Data}    &
+% \multicolumn{2}{c}    {Trained Data}    &   
 
-& Model&  {Vanilla unmasked} &   {Surrog unmasked}
+& Model& {Vanilla unmasked} & {Surrog unmasked}
 & {Vanilla masked}
 & {Surrog masked}
 \\
@@ -509,7 +576,8 @@ In order to see how the performance was improved due to the additional training 
 \end{center}
 \end{table}
 
-\todo[inline]{\small Np. \textit{In the tabulated results, the average accuracy is reported, when each patch is masked independently with a probability of 50\%.}}
+In the tabulated results, the average accuracy is reported, when each patch is masked independently with a probability of 50\%.
+
 The overall accuracy of the models on variously masked data is shown in figure \ref{masked_accuracy}. Masked \% on the x axis represents how many patches were masked in the data. All six models begin at about 97\% accuracy. Vanilla classifiers begin to gradually decrease performance at about 30\% of masked patches, while the surrogates models' accuracy remain almost unchanged. It is only at about 70\% of masked patches that surrogates' accuracy begins to drop.
 
 
@@ -521,8 +589,9 @@ The overall accuracy of the models on variously masked data is shown in figure \
 \end{figure}
 
 
-For the HyperKvasir dataset, the results are much less smooth (see figure \ref{gastro_masked_accuracy}), which is probably due to its smaller size. It is noticeable that the vanilla classifiers are more robust and drop less significantly. It is perhaps because the deciding features of the HyperKvasir are more concentrated and the model predictive power remains almost unchanged until the principal patches remain unmasked.
-\todo[inline]{\small To raczej dlatego, że augmentacje classifiera na tym datasecie są mocniejsze.}
+For the HyperKvasir dataset, the results are much less smooth (see figure \ref{gastro_masked_accuracy}, which is probably due to the smaller size. It is noticeable that the vanilla classifiers are more robust and drop less significantly. We presume that it is caused by stronger augmentations used for this data.
+
+
 
 \begin{figure}[H]
 \centering
@@ -543,7 +612,7 @@ For the HyperKvasir dataset, the results are much less smooth (see figure \ref{g
 \section{CIFAR-10 Explanations}
 In this section we will describe the feature attributions obtained by Shapley values computed from scratch using the exact formula
   \begin{equation*}
-      \phi_i(v) = \sum_{S\subseteq X\backslash \{i\}} \frac{|S|!(|X|-|S|-1)!}{|X|!}\left(v(S \cup \{i\}) - v(S)\right),
+      \phi_v(i) = \sum_{S\subseteq X\backslash \{i\}} \frac{|S|!(|X|-|S|-1)!}{|X|!}\left(v(S \cup \{i\}) - v(S)\right),
   \end{equation*}
 where $X$ is the set of players, $i$ is the number of players, and $v$ is the coalitional game. In our case, the coalitional game is defined by the logits of the surrogate model. Due to the strong theoretical guarantees of the Shapley values, we can refer to them as ground-truth explanations. The Shapley values computed directly from the definition indicate where the patches essential for the prediction really are. Therefore, using them, we can verify whether the model reflects commonsense presumptions about the important features. For the CIFAR-10 dataset, we can rely on intuition which says, for instance, that for the animals, the most important feature is their head or, for the plane, its wings. As for the HyperKvasir dataset, we have pixel-level annotations of the important features (polyps), and we can check whether the models' predictions are based on what they should be based on (see \ref{s:HyperKvasir Explanations}).
 
@@ -552,6 +621,56 @@ where $X$ is the set of players, $i$ is the number of players, and $v$ is the co
 
 
 All the models have rather strong correlation between each other (see Figures \ref{shap_swin_t2t_vit}, \ref{shap_vit_swin}, \ref{shap_vit_t2t_vit}). The strongest correlation occurs between two sparse transformers. It can be seen also in Table \ref{shap_consistency}. We check there how many images get the biggest Shapley value for the same patch. Every pair score is greater than 50\%. It is not surprising that the consistency is not exact because for 16 players, patches are rather small. It means that important features of the image can appear in two patches, and one model can prefer one patch while the other prefers some of its neighbors. It is mostly visible for the class "truck" (see Figure \ref{Truck_shapley}).
+
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.5]{./images/shap_swin_t2t_vit.png}
+\caption{Correlation of Shapley values for Swin and T2T\textunderscore ViT}
+\label{shap_swin_t2t_vit}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.5]{./images/shap_vit_swin.png}
+\caption{Correlation of Shapley values for ViT and Swin}
+\label{shap_vit_swin}
+\end{figure}
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.5]{./images/shap_vit_t2t_vit.png}
+\caption{Correlation of Shapley values for ViT and T2T\textunderscore ViT}
+\label{shap_vit_t2t_vit}
+\end{figure}
+
+
+
+\begin{table}[H]
+\begin{center}
+\caption{The percent of images with the same patch having the biggest Shapley value}
+\begin{tabular}{clSSSSS}
+\toprule
+% \multicolumn{2}{c}    {Trained Data}    &   
+
+& Model & {ViT}  & {T2T\textunderscore ViT} &  {Swin} \\
+
+\midrule
+                &  ViT   & 100    &   50.0    &   53.1 \\
+                &   T2T\textunderscore ViT       &   50.0    &   100 & 62.5\\
+                &   Swin      &  53.1     &   62.5 & 100 \\
+\midrule
+
+\bottomrule
+\label{shap_consistency}
+\end{tabular}
+\end{center}
+\end{table}
+
+
+
 
 \begin{figure}[H]
 \centering
@@ -575,26 +694,9 @@ We plotted several curves, which show the Shapley values for one image and for a
 
 
 
-\begin{table}[H]
-\begin{center}
-  \caption{TODO caption, to jest Pearson?}
-\begin{tabular}{clrrr}
-\toprule
-& Model & {ViT}  & {T2T\textunderscore ViT} &  {Swin} \\
-\midrule
-&  ViT   & 100    &   50.0    &   53.1 \\
-&   T2T\textunderscore ViT       &   50.0    &   100 & 62.5\\
-&   Swin      &  53.1     &   62.5 & 100 \\
-\midrule
-\bottomrule
-\label{shap_consistency}
-\end{tabular}
-\end{center}
-\end{table}
 
 
 We presume therefore that the Shapley values are more similar for the classes with more definite shapes and features. It can be even better observed in the Figures \ref{vit_shap_grid}-\ref{swin_shap_grid}. For some classes like frog or truck the Shapley values are somehow blurred and there are many patches with a big value (marked as yellow). On the other hand, the classes like cat or bird have quite strict "positive" regions which indicate the importance for the model output.
-
 
 
 
@@ -625,6 +727,9 @@ We presume therefore that the Shapley values are more similar for the classes wi
 
 \pagebreak
 
+
+
+
 \begin{figure}[H]
 \centering
 \includegraphics[scale=0.4]{./images/vit_shap_grid_196.png}
@@ -651,10 +756,7 @@ We presume therefore that the Shapley values are more similar for the classes wi
 \pagebreak
 
 
-
 This behavior can be seen in more fine-grained pictures for 196 players (see Figures \ref{vit_shap_grid_196} - \ref{swin_shap_grid_196}). These pictures were produced with the Shapley values computed by the explainer model (see Section \ref{s: model}), because the computation from scratch would require considering each of the $2^{196}$ coalitions. They are, for the most part, compatible with the values computed from scratch for 16 players, i.e., they indicate the same regions of images as important. In the Section \ref{s:evaluation} we will conduct a more thorough evalutation of the explainer model.
-
-
 
 
 In order to investigate the connections between the Shapley values computed by several methods, we computed their correlations and other coefficients. We plotted example correlations in the Figures \ref{true_swin_swin_cifar} - \ref{swin_vit_cifar} (other pairs look very similar).
@@ -664,10 +766,9 @@ In order to investigate the connections between the Shapley values computed by s
 \begin{figure}[H]
 \centering
 \includegraphics[scale=0.5]{./images/true_swin_swin_cifar.png}
-\caption{Ground-truth Shapley values vs Shapley values computed using the explainer model}
+\caption{Ground-truth Shapley values vs Shapley values computed using the swin explainer, for the swin surrogate with 16 players on the CIFAR10 dataset}
 \label{true_swin_swin_cifar}
 \end{figure}
-\todo{\tiny Fig~\ref{true_swin_swin_cifar}: using the swin explainer, for the swin surrogate with 16 players on the CIFAR10 dataset?}
 
 
 \begin{figure}[H]
@@ -679,14 +780,13 @@ In order to investigate the connections between the Shapley values computed by s
 
 We can see that the Shapley values computed by the explainer model highly correlates with the ground-truth, however, it is somehow rescaled so that there is not exact match. On the other hand, explainer models for other surrogates give scattered Shapley values but they lie around the $y=x$ line. In the Table \ref{t:shap_cifar_correlations} are presented the correlation and error metrics. The ground-truth Shapley values have rather high correlation with these computed by the explainer models, but they differ considerably and give also high error rates, MAE and RMSE.
 
-
 \begin{table}[H]
 \begin{center}
 \label{t:shap_cifar_correlations}
 \caption{Agreement between ground-truth Shapley values and explainer values, as well as between different architectures; for the target class; CIFAR10, 16 players.}
 \begin{tabular}{clSSSSS}
 \toprule
-& Metric  & { Pearson's corr} &  {MAE} &  {RMSE} \\
+& Metric  & { Pearson's corr target} &  {MAE target } &  { RMSE target} \\
 \midrule
 & {gt-ViT-ViT} & 0.83 & 0.61 &  0.73 \\
 & {gt-T2T\textunderscore ViT-T2T\textunderscore ViT}  & 0.80& 0.63 & 0.75 \\
@@ -699,6 +799,7 @@ We can see that the Shapley values computed by the explainer model highly correl
 \end{tabular}
 \end{center}
 \end{table}
+
 
 
 
@@ -764,7 +865,7 @@ Cropping of the images caused a considerable decrease in accuracy (see Table \re
 \caption{Accuracy of different classifiers on cropped and non-cropped images.}
 \begin{tabular}{clSSSSS}
 \toprule
-% \multicolumn{2}{c}    {Trained Data}    &
+% \multicolumn{2}{c}    {Trained Data}    &   
 
 & Model & {ViT}  & {T2T\textunderscore ViT} &  {Swin} \\
 
@@ -825,6 +926,7 @@ Similarily as for the CIFAR-10 dataset, we checked the relations between the Sha
 \end{tabular}
 \end{center}
 \end{table}
+ 
 
 
 
@@ -855,9 +957,10 @@ The Shapley values are well-grounded theoretically, so they can serve as a basel
 
 
 
-As it was already mentioned, the HyperKvasir dataset provides the ground-truth segmentation masks that indicate where exactly the polyps are. Therefore, we can use these segmentations for the evaluation of the explanations. In the Figures \ref{segm_shap} -  \ref{segm_shap_2} are displayed the Shapley values computed by the explainer models together with the segmentation mask of the polyps.
+As it was already mentioned, the HyperKvasir dataset provides the ground-truth segmentation masks that indicate where exactly the polyps are. Therefore, we can use these segmentations for the evaluation of the explanations. 
+In the Figures \ref{segm_shap} - \ref{segm_shap_2} are displayed the Shapley values computed by the explainer models together with the segmentation mask of the polyps.
 
-
+\pagebreak
 
 
 \begin{figure}
@@ -886,7 +989,7 @@ As it was already mentioned, the HyperKvasir dataset provides the ground-truth s
 \label{segm_shap}
 \end{figure}
 
-
+\pagebreak
 
 
 \begin{figure}
@@ -911,18 +1014,114 @@ As it was already mentioned, the HyperKvasir dataset provides the ground-truth s
    \caption{Ground truth segmentation mask}
    \label{fig:Ng1}
 \end{subfigure}
-\caption{Segmentations of the masks together with explainer-estimated Shapley values for three models: ViT, Swin, and T2T\textunderscore ViT.}
+\caption{Segmentations masks together with explainer-estimated Shapley values for three models: ViT, Swin, and T2T\textunderscore ViT.}
 \label{segm_shap_2}
 \end{figure}
 
-
-We can see that the Swin model indicates the patches in the most confident manner, however, these patches do not necessarily contain the polyps, as it is the case for the Figure \ref{segm_shap_2} for the second and the third images. In order to get a more rigorous evaluation of the explainer models, we can treat them as segmentation models and check their performance using standard metrics like Dice, IoU, precision, and recall. The output of the explainer model has shape $(\textrm{batch size}, \textrm{number of players})$, so we have to reshape it. We do this by repeating on the whole patch the Shapley value obtained by the explainer. Then we have to choose some threshold value to decide which pixels belong to the polyp.
-
+\pagebreak
 
 
+We can see that the Swin model indicates the patches in the most confident manner, however, these patches do not necessarily contain the polyps. At the Figure \ref{segm_shap_2} in the second and the third images for Swin, we can see that Shapley values are high for some boundary regions which do not belong to the segmentation mask. 
+
+We can build a segmentation model based on Shapley values computed by the explainer models. For each patch we decide whether it represents a polyp using some threshold. The output of the explainer model has shape $(\textrm{batch size}, \textrm{number of players})$, so we have to reshape it. We do this by repeating on the whole patch the Shapley value obtained by the explainer. Then we have to choose some threshold value to decide which pixels belong to the polyp.
+
+ In order to find an appropriate threshold, we computed Dice score between explainer-based segmenation and ground-truth segmentation on the training set. We choose a threshold which maximizes Dice score on the training set. In the Table \ref{segmentation_metrics} we present some metrics for this segmentation approach.
 
 
-We will discuss them in the following points.
+
+\begin{table}[H]
+\begin{center}
+\caption{Metrics for the explainer-based segmentations masks\\}
+\begin{tabular}{clSSSSS}
+\toprule
+% \multicolumn{2}{c}    {Trained Data}    &   
+
+& Model &  {Dice} &   {Jaccard} & {Precision} & {Recall} \\
+
+\midrule
+                &   ViT         &   0.81    &   0.48  &  0.75  &  0.59  \\
+                &   T2T\textunderscore ViT       &   0.81    &   0.49    & 0.75   &  0.59 \\
+                &   Swin      &   0.80    &   0.49     & 0.77   &  0.59  \\
+\midrule
+
+\bottomrule
+\label{segmentation_metrics}
+\end{tabular}
+\end{center}
+\end{table}
+
+
+
+We also visualize the segmentation masks obtained using Shapley values (Figures \ref{segm_exp_1} - \ref{segm_exp_2}). Apart from some outliers, segmentation masks indicated by Shapley values are contained in the ground-truth segmentation masks. It gives a comparatively high precision score. On the other hand, Shapley values based segmentation masks do not succeed in locating all the polyp pixels, which gives a low recall score.
+
+
+
+
+\begin{figure}
+\centering
+\begin{subfigure}{0.55\textwidth}
+   \includegraphics[width=1\linewidth]{./images/gastro_segmentation_vit_1.png}
+   \caption{ViT}
+   \label{fig:Ng2}
+\end{subfigure}
+\begin{subfigure}{0.55\textwidth}
+   \includegraphics[width=1\linewidth]{./images/gastro_segmentation_swin_1.png}
+   \caption{Swin}
+   \label{fig:Ng2}
+\end{subfigure}
+\begin{subfigure}{0.55\textwidth}
+   \includegraphics[width=1\linewidth]{./images/gastro_segmentation_t2t_vit_1.png}
+   \caption{T2T}
+   \label{fig:Ng2}
+\end{subfigure}
+\begin{subfigure}{0.55\textwidth}
+   \includegraphics[width=1\linewidth]{./images/gastro_segmentation_1.png}
+   \caption{Ground truth segmentation mask}
+   \label{fig:Ng1}
+\end{subfigure}
+\caption{Segmentations masks together with explainer-based masks for three models: ViT, Swin, and T2T\textunderscore ViT.}
+\label{segm_exp_1}
+\end{figure}
+
+
+
+
+
+
+
+\begin{figure}
+\centering
+\begin{subfigure}{0.55\textwidth}
+   \includegraphics[width=1\linewidth]{./images/gastro_segmentation_vit_2.png}
+   \caption{ViT}
+   \label{fig:Ng2}
+\end{subfigure}
+\begin{subfigure}{0.55\textwidth}
+   \includegraphics[width=1\linewidth]{./images/gastro_segmentation_swin_2.png}
+   \caption{Swin}
+   \label{fig:Ng2}
+\end{subfigure}
+\begin{subfigure}{0.55\textwidth}
+   \includegraphics[width=1\linewidth]{./images/gastro_segmentation_t2t_vit_2.png}
+   \caption{T2T}
+   \label{fig:Ng2}
+\end{subfigure}
+\begin{subfigure}{0.55\textwidth}
+   \includegraphics[width=1\linewidth]{./images/gastro_segmentation_2.png}
+   \caption{Ground truth segmentation mask}
+   \label{fig:Ng1}
+\end{subfigure}
+\caption{Segmentations masks together with explainer-based masks for three models: ViT, Swin, and T2T\textunderscore ViT.}
+\label{segm_exp_2}
+\end{figure}
+
+
+
+
+
+
+
+We move on now to discuss the abovementioned evaluation metrics: monotonicity, max-sensitivity, and ROAD.
 
 
 \subsection{Monotonicity}
@@ -949,7 +1148,7 @@ expectations, as computed in Equation \ref{monotonicity_equation}.
 \subsection{Max-sensitivity}
 Sensitivity can be defined in a general way for a function $\Phi _f : \mathbb{R}^n \rightarrow \mathbb{R}^d$ (here subscript $f$ denotes that the function $\Phi$ depends on a function $f$) as a vector of partial derivatives:
 \begin{equation}
-    \left[ \nabla_{x} \Phi _{f}(x)\right]_j = \textrm{lim}_{\varepsilon \rightarrow 0}
+    \left[ \nabla_{x} \Phi _{f}(x)\right]_j = \textrm{lim}_{\varepsilon \rightarrow 0} 
     \frac{\Phi _{f} (x + x \textbf{e}_{\textbf{j}} ) - \Phi_{f}(x)}
     {\varepsilon}.
 \end{equation}
@@ -973,10 +1172,9 @@ The ROAD method proposes another way to reduce computations. It saves 99\% of th
 & w_{\textup{indirect}} (x_{i+1,j+1} + x_{i−1,j+1} + x_{i+1,j−1} + x_{i−1,j−1})
 \end{align*}
 where $x_{i,j}$ are pixels and $w_{\textup{direct}}, w_{\textup{indirect}}$ are constant coefficients for direct and indirect (diagonal) neighbors of a pixel, respectively. The resulting system of equations can be efficiently solved even for a large number of missing pixels. This linear interpolation of removed pixels should not be learned by a model (otherwise the model could almost exactly reproduce the input) so there is added a small Gaussian noise.
-\todo[inline]{``solve'' w sensie optymalizujemy dwie zmienne $w$, czy znajdujemy wiele x dla jakoś ustalonych w? Z noisem chodzi o to żeby model nie mógł się nauczyć rozpoznawać maskę, tzn. które piksele są imputowane?}
 
-In Figures \ref{ROAD_cifar_vit} - \ref{ROAD_cifar_swin} we present the accuracy of the models after removing the most important pixels according to the ROAD method. We can see that the accuracy on the batch of 32 images remains very high for the Saliency method even after removing 80\% of pixels. The explainer model outperforms it significantly. Removing the pixels marked as important by the explainer models causes quite an abrupt decrease in accuracy. We can also note that the accuracy for both Saliency and explainer feature attributions remains high for up to 20\% of removed pixels. It is probably due to the noisy linear imputations method. After removing only 20\% of pixels, the images remain very similar, though somewhat blurred.
-\todo[inline]{\small Podkreśliłbym po pierwszym zdaniu, że lepsze explanation to takie, które ma mniejsze accuracy, można to też powtórzyć w pierwszym caption (przynajmniej ``lower accuracy means better explanation'').}
+In Figures \ref{ROAD_cifar_vit} - \ref{ROAD_cifar_swin} we present the accuracy of the models after removing the most important pixels according to the ROAD method. Note that lower accuracy indicates a better explanation. We can see that the accuracy on the batch of 32 images remains very high for the Saliency method even after removing 80\% of pixels. The explainer model outperforms it significantly. Removing the pixels marked as important by the explainer models causes quite an abrupt decrease in accuracy. We can also note that the accuracy for both Saliency and explainer feature attributions remains high for up to 20\% of removed pixels. It is probably due to the noisy linear imputations method. After removing only 20\% of pixels, the images remain very similar, though somewhat blurred.
+
 
 
 \begin{figure}[H]
@@ -1097,6 +1295,8 @@ On Figure \ref{im: masked_saliency_accuracy_vit} we can see that the saliency at
   \label{fig:sub2}
 \end{subfigure}
 
+
+
 \begin{subfigure}{.5\textwidth}
   \centering
   \includegraphics[width=1\linewidth]{./images/masking_explainer_patches_accuracy_t2t_vit_half-0.png}
@@ -1126,6 +1326,7 @@ On Figure \ref{im: masked_saliency_accuracy_vit} we can see that the saliency at
   \label{fig:sub2}
 \end{subfigure}
 
+
 \label{fig:Saliency_Explainer_CIFAR}
 \caption{Accuracy of surrogate model after removing features computed by explainer or saliency method on the CIFAR10 dataset.}
 \end{figure}
@@ -1135,7 +1336,8 @@ On Figure \ref{im: masked_saliency_accuracy_vit} we can see that the saliency at
 
 
 
-The results for the HyperKvasir dataset show even better the advantages of the Shapley values computed by the explainer model over the Saliency method (see Figures \ref{ViT_Saliency_Explainer_HyperKvasir} -\ref{Swin_Saliency_Explainer_HyperKvasir}). We can see that removing the patches recognized as important for the prediction by the Saliency method causes a similar drop in accuracy to the random removing approach. As a matter of fact, all the curves for the Saliency method look similar, and methods of removing the patches change the accuracy in a similar way.
+
+The results for the HyperKvasir dataset show even better the advantages of the Shapley values computed by the explainer model over the Saliency method (see Figure \ref{fig:Saliency_Explainer_HyperKvasir}. We can see that removing the patches recognized as important for the prediction by the Saliency method causes a similar drop in accuracy to the random removing approach. As a matter of fact, all the curves for the Saliency method look similar, and methods of removing the patches change the accuracy in a similar way.
 
 On the other hand, explainer recognizes the important features very precisely, so that the accuracy after removing the most important features drops fastly for all the three models (ViT, T2T\textunderscore ViT, and Swin). Worst, peripheral, and central removing approaches of removing give the curves that lie between the curves for the worst and best patches removing approaches, as we expect from a proper feature attribution method.
 
@@ -1162,6 +1364,10 @@ On the other hand, explainer recognizes the important features very precisely, s
   \label{fig:sub2}
 \end{subfigure}
 
+
+
+
+
 \begin{subfigure}{.5\textwidth}
   \centering
   \includegraphics[width=1\linewidth]{./images/t2t_vit_gastro_masking_explainer_patches_accuracy_half-0.png}
@@ -1175,6 +1381,10 @@ On the other hand, explainer recognizes the important features very precisely, s
   \caption{Saliency (T2T)}
   \label{fig:sub2}
 \end{subfigure}
+
+
+
+
 
 \begin{subfigure}{.5\textwidth}
   \centering
@@ -1190,8 +1400,10 @@ On the other hand, explainer recognizes the important features very precisely, s
   \label{fig:sub2}
 \end{subfigure}
 
+
+
 \caption{Accuracy of surrogate model after removing features computed by explainer or saliency method on the HyperKvasir dataset.}
-\label{fig:ViT_Saliency_Explainer_HyperKvasir}
+\label{fig:Saliency_Explainer_HyperKvasir}
 \end{figure}
 
 
@@ -1214,56 +1426,29 @@ On the other hand, explainer recognizes the important features very precisely, s
 
 
 
-\begin{figure}[H]
-\centering
-\includegraphics[scale=0.5]{./images/vit_surrogate_masks.png}
-\caption{Vit surrogate model}
-\label{vit_surrogate_masks}
-\end{figure}
-
-
-\begin{figure}[H]
-\centering
-\includegraphics[scale=0.5]{./images/t2t_vit_surrogate_masks.png}
-\caption{T2T\textdel after removing features computed by explainer or saliency methodscore vit surrogate model}
-\label{t2t_vit_surrogate_masks}
-\end{figure}
-
-
-\begin{figure}[H]
-\centering
-\includegraphics[scale=0.5]{./images/swin_surrogate_masks.png}
-\caption{Swin surrogate model}
-\label{swin_surrogate_masks}
-\end{figure}
 
 
 
 
 
 
-\begin{figure}[H]
-\centering
-\includegraphics[scale=0.5]{./images/vit_classifier_masks.png}
-\caption{Vit classifier model}
-\label{vit_classifier_masks}
-\end{figure}
 
 
-\begin{figure}[H]
-\centering
-\includegraphics[scale=0.5]{./images/t2t_vit_classifier_masks.png}
-\caption{T2t\textdel after removing features computed by explainer or saliency methodscore vit surrogate model}
-\label{t2t_vit_classifier_masks}
-\end{figure}
 
 
-\begin{figure}[H]
-\centering
-\includegraphics[scale=0.5]{./images/swin_classifier_masks.png}
-\caption{Swin classifier model}
-\label{swin_classifier_masks}
-\end{figure}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
