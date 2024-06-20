@@ -88,6 +88,17 @@ Contains checkpoints with model weights that we want to keep:
             - `v_on_s`: 66.7%
             - `v_on_t`: 69.6%
             - `v_on_v`: 62.9%
+        - `pairs/player196/`:
+            - `s_on_s`: 57.6%
+            - `s_on_t`: 56.1%
+            - `s_on_v`: 57.7%
+            - `t_on_s`: TODO
+            - `t_on_t`: TODO
+            - `t_on_v`: 53.4%
+            - `v_on_s`: TODO
+            - `v_on_t`: TODO
+            - `v_on_v`: TODO
+
     - `gastro/`
         - `v4/`
             - `player16/`
@@ -117,3 +128,13 @@ Contains checkpoints with model weights that we want to keep:
             - `v_on_s`: 66.0%
             - `v_on_t`: 63.6%
             - `v_on_v`: 64.2%
+        - `pairs/player196/`:
+            - `s_on_s`: 47.9%
+            - `s_on_t`: 52.6%
+            - `s_on_v`: 51.3%
+            - `t_on_s`: 46.5%
+            - `t_on_t`: 33.0%
+            - `t_on_v`: 41.9%
+            - `v_on_s`: 42.3%
+            - `v_on_t`: 37.9%
+            - `v_on_v`: 31.2%

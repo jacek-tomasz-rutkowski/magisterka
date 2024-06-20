@@ -28,6 +28,7 @@ dependencies:
 
   - captum
   - fastai>=2.7
+  - fsspec
   - jsonargparse  # needed for LightningCLI
   - lightning>=2.1
   - matplotlib
@@ -35,6 +36,7 @@ dependencies:
   - pillow>=10
   - pydantic
   - rich
+  - s3fs
   - scikit-image
   - scikit-learn
   - scikit-video

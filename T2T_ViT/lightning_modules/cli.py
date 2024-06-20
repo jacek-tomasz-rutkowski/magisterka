@@ -2,8 +2,10 @@ import os
 import pprint
 import warnings
 from functools import partial
+from pathlib import Path
 from typing import Any, Callable, Type
 
+import fsspec
 import jsonargparse
 import lightning as L
 import torch
@@ -60,8 +62,17 @@ def lightning_main(
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
     # Choose where to save logs and checkpoints.
-    checkpoints_dir = PROJECT_ROOT / "checkpoints"
-    (checkpoints_dir / experiment_name).mkdir(exist_ok=True, parents=True)
+    if True:
+        filesystem = "file"
+        checkpoints_dir = PROJECT_ROOT / "checkpoints"
+    else:
+        filesystem = "s3"
+        checkpoints_dir = Path("/testbucket.blekot/checkpoints")
+
+    fs = fsspec.filesystem(filesystem)
+    fs.makedirs(checkpoints_dir / experiment_name, exist_ok=True)
+    if filesystem != "file":
+        fs.touch(checkpoints_dir / experiment_name / "dummy")
     slurm_job_id = os.environ.get("SLURM_JOB_ID", "")
     version: str
     if slurm_job_id:
@@ -70,20 +81,23 @@ def lightning_main(
         # or this is another training within the same slurm job (scripted or in an interactive bash session).
         # In any case, we add a subversion counter.
         subversion = ""
-        while (checkpoints_dir / experiment_name / (version + subversion) / "hparams.yaml").exists():
+        while fs.exists(checkpoints_dir / experiment_name / (version + subversion) / "hparams.yaml"):
             subversion = "." + str(int(subversion[1:] or 1) + 1)
         version = version + subversion
     else:
         # If not running with slurm, set the version to the next available number, prefixed with "v" instead of "s".
         versions = []
-        for p in (checkpoints_dir / experiment_name).iterdir():
-            if p.name.startswith("v") and p.is_dir() and (p / "hparams.yaml").exists():
+        for p in fs.ls(checkpoints_dir / experiment_name, detail=False):
+            p = Path(p)
+            if p.name.startswith("v") and fs.exists(p / "hparams.yaml"):
                 try:
                     versions.append(int(p.name[1:]))
                 except ValueError:
                     pass
         version = f"v{max(versions, default=0) + 1}"
-    print(str(checkpoints_dir / experiment_name / version))
+    prefix = "" if filesystem == "file" else f"{filesystem}://"
+    save_dir = prefix + str(checkpoints_dir)
+    print(save_dir + "/" + experiment_name + "/" + version)
 
     # Setup the callback to write the config.yaml file next to hparams.yaml.
     save_config_callback = partial(_LoggerSaveConfigCallback, main_config_callback=main_config_callback)
@@ -92,9 +106,9 @@ def lightning_main(
         lmodule_class,
         datamodule_class,
         trainer_defaults=dict(
-            default_root_dir=checkpoints_dir / experiment_name,
+            default_root_dir=save_dir + "/" + experiment_name,
             logger=[
-                dict(class_path=c, init_args=dict(save_dir=str(checkpoints_dir), name=experiment_name, version=version))
+                dict(class_path=c, init_args=dict(save_dir=save_dir, name=experiment_name, version=version))
                 for c in ["TensorBoardLogger", "CSVLogger"]
             ],
             callbacks=[

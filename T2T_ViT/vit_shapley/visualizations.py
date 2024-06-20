@@ -49,10 +49,11 @@ def get_heatmaps_grid(
     labels: torch.Tensor,
     shap_values: torch.Tensor,
     scale: float = 0.5,
-    alpha: float = 0.6
+    alpha: float = 0.6,
+    classes: list[str] = CIFAR10_CLASSES,
 ) -> PIL.Image.Image:
     heatmap_grid = _make_image_grid(_get_heatmaps(shap_values, images.shape, scale=scale))
-    image_grid = to_image_grid(images, labels, scale=scale)
+    image_grid = to_image_grid(images, labels, scale=scale, classes=classes)
     return PIL.Image.blend(image_grid, heatmap_grid, alpha=alpha)
 
 
