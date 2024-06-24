@@ -92,12 +92,12 @@ Contains checkpoints with model weights that we want to keep:
             - `s_on_s`: 57.6%
             - `s_on_t`: 56.1%
             - `s_on_v`: 57.7%
-            - `t_on_s`: TODO
-            - `t_on_t`: TODO
+            - `t_on_s`: 57.0%
+            - `t_on_t`: 46.9%
             - `t_on_v`: 53.4%
-            - `v_on_s`: TODO
-            - `v_on_t`: TODO
-            - `v_on_v`: TODO
+            - `v_on_s`: 56.3%
+            - `v_on_t`: 49.5%
+            - `v_on_v`: 50.5%
 
     - `gastro/`
         - `v4/`
@@ -110,14 +110,14 @@ Contains checkpoints with model weights that we want to keep:
                 - `swin_tiny_patch4_window7_224`  val-macc-best 64.3%
                 - `t2t_vit_14`                    val-macc-best 25.8%
         - `v5/`
-            - `player196/`
-                - `vit_small_patch16_224`         val-macc-best 27.8%
-                - `swin_tiny_patch4_window7_224`  val-macc-best 44.2%
-                - `t2t_vit_14`                    val-macc-best 26.8%
             - `player16/`
                 - `vit_small_patch16_224`         val-macc-best 59.2%
                 - `swin_tiny_patch4_window7_224`  val-macc-best 59.9%
                 - `t2t_vit_14`                    val-macc-best 64.6%
+            - `player196/`
+                - `vit_small_patch16_224`         val-macc-best 27.8%
+                - `swin_tiny_patch4_window7_224`  val-macc-best 44.2%
+                - `t2t_vit_14`                    val-macc-best 26.8%
         - `pairs/player16/`: 9 pairs x_on_y meaning backbone x on target surrogate y.
             - `s_on_s`: 64.1%
             - `s_on_t`: 63.0%
