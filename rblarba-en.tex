@@ -947,7 +947,7 @@ Cropping of the images caused a considerable decrease in accuracy (see Table \re
 \end{table}
 
 
-Similarily as for the CIFAR-10 dataset, we checked the relations between the Shapley values computed in different ways. We can see both by metrics (see Table \ref{t:shap_gastro_correlations}) and by the plots (Figures \ref{true_swin_swin_gastro} - \ref{vit_swin_gastro}) that the Shapley values differ considerably.
+Just like for the CIFAR-10 dataset, we checked the relationships between the Shapley values computed in different ways. Note that Shapley values for the target class and for all classes are mixed, whereas for the CIFAR-10 dataset they were quite strictly separated (see Figures  \ref{true_swin_swin_gastro} - \ref{vit_swin_gastro}). In the HyperKvasir dataset, there are only two classes, and the polyp class is indicated only by a specific area on the image, so Shapley values for patches in the remaining areas might not differ from Shapley values for the non-polyp class.
 
 
 
@@ -975,14 +975,14 @@ Similarily as for the CIFAR-10 dataset, we checked the relations between the Sha
 & Metric  & { Pearson's corr} &  {MAE} &  { RMSE} \\
 \midrule
 & {gt-ViT-ViT}
-& 0.57 & 0.20 &  0.30 \\
+& 0.80 & 0.17 &  0.23 \\
 & {gt-T2T\textunderscore ViT-T2T\textunderscore ViT}
-& 0.60 & 0.18 & 0.25 \\
+& 0.77 & 0.18 & 0.24 \\
 & gt-Swin-Swin
-&  \textbf{0.77} &  0.18 & 0.25 \\
+&  \textbf{0.85} &  \textbf{0.11} & \textbf{0.15} \\
 & ViT-T2T\textunderscore ViT &  0.70 & 0.17 &  0.23 \\
 & T2T\textunderscore ViT-Swin
-&  0.72 &  \textbf{0.15} & \textbf{0.20} \\
+&  0.72 &  0.15 & 0.20 \\
 & T2T\textunderscore ViT-Swin
 & 0.66 &  0.17 &  0.24 \\
 \midrule
