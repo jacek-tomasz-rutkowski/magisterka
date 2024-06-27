@@ -54,6 +54,7 @@
 \addbibresource{bibliography/HookerEKK19.bib}
 \addbibresource{bibliography/0007CWYSJTFY21.bib}
 \addbibresource{bibliography/Characterization.bib}
+\addbibresource{bibliography/RozemberczkiWBY22.bib}
  
 
 
@@ -151,13 +152,13 @@ Firstly, we study the performance of the models on two datasets: CIFAR-10 and Hy
 
 
 \section{Shapley values}
-Shapley values were introduced by Lloyd Shapley in 1951 as a concept in cooperative game theory \cite{ShapleyValues}.\todo{Cytowanie skąd obrazek}
+Shapley values were introduced by Lloyd Shapley in 1951 as a concept in cooperative game theory \cite{ShapleyValues}.
 Using them, one can answer the question of how a reward should be "fairly" distributed between the players in a cooperative game. For instance, imagine that some people want to solve a problem, and they get a reward inversely proportional to the time spent. How should we divide the money? The naive approach could be to separate each individual from the group and check how much time it will take the others to manage the issue. According to this time, we distribute the reward.
 
 \begin{figure}[H]
 \centering
 \includegraphics[scale=0.3]{./images/Shap_coal_2.png}
-\caption{Rewards without chosen players.}
+\caption{Rewards without chosen players. Source: \cite{DBLP:conf/ijcai/RozemberczkiWBY22}.}
 \end{figure}
 
 However, such an approach does not take into account the fact that some subgroups might have an "emergent" value, i.e., they can give a much bigger (or much worse) value together than separately. It can be that the green robot vibes perfectly with the blue robot, but it is completely useless alone. If the green robot copes well only in group, it would be reasonable to give him a large part of the final reward. That is why we should take into account all the possible coalitions (see Figure \ref{rewards_all}).
@@ -165,7 +166,7 @@ However, such an approach does not take into account the fact that some subgroup
 \begin{figure}[H]
 \centering
 \includegraphics[scale=0.3]{./images/Shap_all_coal.png}
-\caption{Rewards of all coalitions.}
+\caption{Rewards of all coalitions. Source: \cite{DBLP:conf/ijcai/RozemberczkiWBY22}.}
 \label{rewards_all}
 \end{figure}
 
@@ -317,7 +318,7 @@ The Tokens-to-Token module is used between two transformer layers and is the cor
 
 \section{Swin}\label{r:swin}
 The Swin model (\textbf{S}hifted \textbf{win}dow) \cite{DBLP:conf/iccv/LiuL00W0LG21} limits the computations related to the attention matrix by the window-based approach. Self-attention is calculated only on some subsets of neighbouring patches (windows) rather than on the whole image. If we choose the window size to be constant, then the complexity is reduced to linear on the number of patches.
-\todo{Wymazać ``ours'' z obrazka}
+
 \begin{figure}[H]
 \centering
 \includegraphics[scale=0.4]{./images/sliding_window.png}
