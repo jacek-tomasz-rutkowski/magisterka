@@ -53,6 +53,8 @@
 \addbibresource{bibliography/RongLBKK22.bib}
 \addbibresource{bibliography/HookerEKK19.bib}
 \addbibresource{bibliography/0007CWYSJTFY21.bib}
+\addbibresource{bibliography/Characterization.bib}
+ 
 
 
 
@@ -126,13 +128,20 @@
 
 \chapter*{Introduction}
 \addcontentsline{toc}{chapter}{Introduction}
+With the emergence of the AI Act, explanation of the models has become not only a desirable feature, but also a necessity. There are numerous methods of explaining the model predictions, like LIME, Shapley values, gradient saliency, integrated gradients, etc. They can be 	divided into two parts: model-agnostic and model-specific methods. Model-agnostic methods treat the model as a black box. They try to find out which features of the input were most and least important for the given prediction. Model-specific methods work only for some given classes of models and analyse their internal behavior, like gradients in neural networks.
+Therefore, model-agnostic methods are more universal. Among them, the most compelling method are Shapley values. It has strong intuitive axiomatic properties which fulfill the reasonable requirements for the explanation. However, there is a caveat here. Shapley values are prohibitively costly to compute. If we wanted to compute Shapley values for each pixel on the $224 \times 224$ image, then we would require $2^{224\times 224}$ computation steps, which is much more than the number of atoms in the universe. Even if we divided an image into patches and wished to compute Shapley values for these patches instead of pixels, the exponential time of computations severely restricts the range of possible applications.
+There have been several solutions to tackle this problem and compute Shapley values more efficiently, like KernelSHAP or FastSHAP. Later on, we study a method based on the FastSHAP approach. In this method, we do not compute Shapley values from scratch, but we tailor a loss function that leads in its argmin to Shapley values. This loss function is constructed in such a way that it does not require any ground-truth Shapley values. It is advantageous, insofar as it would be rather complicated to obtain such ground-truth values. As we are interested in the explanations themselves, and not only on the model, we want to evaluate these explanations. 
+
+We investigate a method to compute Shapley values
+sparse transformers
+XAI and Deep Learning
 
 
 \chapter{Basic concepts}\label{r:concepts}
 
 
 \section{Shapley values}
-Shapley values were introduced by Lloyd Shapley in 1951 as a concept in cooperative game theory [CITE]!.\todo{Cytowanie skąd obrazek}
+Shapley values were introduced by Lloyd Shapley in 1951 as a concept in cooperative game theory \cite{ShapleyValues}.\todo{Cytowanie skąd obrazek}
 Using them, one can answer the question of how a reward should be "fairly" distributed between the players in a cooperative game. For instance, imagine that some people want to solve a problem, and they get a reward inversely proportional to the time spent. How should we divide the money? The naive approach could be to separate each individual from the group and check how much time it will take the others to manage the issue. According to this time, we distribute the reward.
 
 \begin{figure}[H]
@@ -178,11 +187,6 @@ If we denote the number of players by $n$ then the number of all possible coalit
 
 
 In the field of XAI, Shapley values are referred to as a model-agnostic method of explanation since it does not take into account any specific properties of the considered model. It takes only the outputs of the model, no matter how they are generated. However, when we use approximation techniques, Shapley values can depend on the model architecture as we will see in Chapter \ref{r:experiments}. Here we introduce two sparse transformer models which we compare with vanilla transformer architecture during the experiments.
-
-
-
-
-
 
 
 \section{Sparse transformers}
@@ -367,9 +371,7 @@ where $p(s)$ is the distribution over subsets. This loss has a theoretical guara
 i.e. the optimal model $g(\mathbf{x_s})$ outputs the expected prediction given the available information about unmasked input $x$. With such a model we are able to provide more robust and trustworthy model outputs on the masked images. It is needed both for computing the Shapley values from scratch and for the explainer model.
 
 \section{Model for Shapley values computation}\label{s:model}
-Using surrogate model we can introduce the coalitional game $v_{xy}(s) = g_y(x_s;\beta)$, where $y$ is one of the classes and $s$ some subset of image patches. Instead of training a neural network on some ground truth Shapley values one can use an optimization-based characterization of the Shapley value 
-
-[CITE! Charnes et al. 1988 (Extremal Principle Solutions of Games in Characteristic Function Form: Core, Chebychev and Shapley Value Generalizations)]
+Using surrogate model we can introduce the coalitional game $v_{xy}(s) = g_y(x_s;\beta)$, where $y$ is one of the classes and $s$ some subset of image patches. Instead of training a neural network on some ground truth Shapley values one can use an optimization-based characterization of the Shapley value  \cite{Characterization}.
 
 This characterization allows to find the Shapley values by minimizing the following objective introduced in \cite{DBLP:conf/iclr/JethaniSCLR22}:
 \begin{equation}
@@ -440,7 +442,7 @@ The accuracy results of transfer learning are given below.
 
 \midrule
                 &   ViT         &   90.5    &   97.7 & 20.7 M \\
-                &   T2T\textunderscore ViT       &   93.7    &   97.7 & 20.2\\
+                &   T2T\textunderscore ViT       &   93.7    &   97.7 & 20.2 M\\
                 &   Swin      &   91.3    &   98.0 & 26.3 M\\
 \midrule
 
@@ -472,7 +474,7 @@ At the beginning, we present the performance of surrogate models. Below (Figures
 \begin{figure}[H]
 \centering
 \includegraphics[scale=0.5]{./images/t2t_vit_classifier_masks.png}
-\caption{T2t\textdel after removing features computed by explainer or saliency methodscore vit surrogate model}
+\caption{T2T\textunderscore ViT after removing features computed by explainer or saliency methodscore vit surrogate model}
 \label{t2t_vit_classifier_masks}
 \end{figure}
 
@@ -501,7 +503,7 @@ In order to see how the performance was improved due to the additional training 
 \begin{figure}[H]
 \centering
 \includegraphics[scale=0.5]{./images/t2t_vit_surrogate_masks.png}
-\caption{T2T\textdel after removing features computed by explainer or saliency methodscore vit surrogate model}
+\caption{T2T\textunderscore ViT after removing features computed by explainer or saliency methodscore vit surrogate model}
 \label{t2t_vit_surrogate_masks}
 \end{figure}
 
@@ -679,7 +681,7 @@ All the models have rather strong correlation between each other (see Figures \r
 \label{Truck_shapley}
 \end{figure}
 
-We plotted several curves, which show the Shapley values for one image and for all 16 patches. The shapes of the curves for different models vary considerably. It is probably due to the fact that the truck has many features, which could lead to the conclusion that there is a truck in the image. There are many indicators of "truckness." On the other hand, the shapes for the "cat" class are almost perfectly consistent (see figure \ref{Cat_shapley}). The reason for this behavior of the models might be that cats are more definite beings than trucks. Models may learn that the most important feature of cat is its head while there are many other important features like legs, trunk, tail. Models assign to each of the features some proportionate importance. The features of the truck are much less sharp. For one model a white patch might enhance the probability of the truck class because it learned that the trucks are often white. For another model the same white patch might work against the truck class as it is rather indicator of the plane.
+We plotted Shapley values for one image and for all 16 patches. The truck has many features, which could lead to the conclusion that there is a truck in the image. There are many indicators of "truckness." It is reflected by the fact that there are many features with a high Shapley value. On the other hand, the plots for the "cat" show one feature with a high attribution and another with relatively small attributions (see figure \ref{Cat_shapley}). The reason for this behavior of the models might be that cats are more definite beings than trucks. Models may learn that the most important feature of a cat is its head, while there are many other less important features like legs, trunk, and tail. Models assign to each of the features some proportionate importance. The features of the truck are much less sharp. For one model, a white patch might enhance the probability of the truck class because it learned that trucks are often white. For another model, the same white patch might work against the truck class as it is rather indicator of the plane.
 
 
 
@@ -695,8 +697,7 @@ We plotted several curves, which show the Shapley values for one image and for a
 
 
 
-
-We presume therefore that the Shapley values are more similar for the classes with more definite shapes and features. It can be even better observed in the Figures \ref{vit_shap_grid}-\ref{swin_shap_grid}. For some classes like frog or truck the Shapley values are somehow blurred and there are many patches with a big value (marked as yellow). On the other hand, the classes like cat or bird have quite strict "positive" regions which indicate the importance for the model output.
+This concentration of the important features can be even better observed in the Figures \ref{vit_shap_grid}-\ref{swin_shap_grid}. For some classes like frog or truck the Shapley values are somehow blurred and there are many patches with a big value (marked as yellow). On the other hand, the classes like cat or bird have quite strict "positive" regions which indicate the importance for the model output.
 
 
 
@@ -778,7 +779,7 @@ In order to investigate the connections between the Shapley values computed by s
 \label{swin_vit_cifar}
 \end{figure}
 
-We can see that the Shapley values computed by the explainer model highly correlates with the ground-truth, however, it is somehow rescaled so that there is not exact match. On the other hand, explainer models for other surrogates give scattered Shapley values but they lie around the $y=x$ line. In the Table \ref{t:shap_cifar_correlations} are presented the correlation and error metrics. The ground-truth Shapley values have rather high correlation with these computed by the explainer models, but they differ considerably and give also high error rates, MAE and RMSE.
+We can see that the Shapley values computed by the explainer model highly correlates with the ground-truth. On the other hand, explainer models for other surrogates give scattered Shapley values but they also lie around the $y=x$ line. In the Table \ref{t:shap_cifar_correlations} are presented the correlation and error metrics. The ground-truth Shapley values have rather high correlation with these computed by the explainer models, and give also smaller error rates, MAE and RMSE.
 
 \begin{table}[H]
 \begin{center}
@@ -788,10 +789,10 @@ We can see that the Shapley values computed by the explainer model highly correl
 \toprule
 & Metric  & { Pearson's corr target} &  {MAE target } &  { RMSE target} \\
 \midrule
-& {gt-ViT-ViT} & 0.83 & 0.61 &  0.73 \\
-& {gt-T2T\textunderscore ViT-T2T\textunderscore ViT}  & 0.80& 0.63 & 0.75 \\
-& gt-Swin-Swin &  0.76 &  0.80 & 0.94 \\
-& ViT-T2T\textunderscore ViT &  \textbf{0.86} & \textbf{0.21} &  \textbf{0.27} \\
+& {gt-ViT-ViT} & \textbf{0.90} & \textbf{0.17} &  \textbf{0.23} \\
+& {gt-T2T\textunderscore ViT-T2T\textunderscore ViT}  & 0.89 & 0.18 & 0.24 \\
+& gt-Swin-Swin &  \textbf{0.90} &  0.20 & 0.27 \\
+& ViT-T2T\textunderscore ViT &  0.86 & 0.21 &  0.27 \\
 & T2T\textunderscore ViT-Swin &  0.83 &  0.28 & 0.37 \\
 & T2T\textunderscore ViT-Swin  & 0.85 &  0.29 &  0.37 \\
 \midrule
@@ -802,11 +803,75 @@ We can see that the Shapley values computed by the explainer model highly correl
 
 
 
+We performed yet another experiment that highlighted the differences between the architectures of the models. In all the other experiments, we trained the explainer model with the same backbone as the surrogate model. Here we investigate how the explanations of one model change if we compute them with other explainers. It turned out that ViT and T2T\textunderscore ViT based explainer models give similar results, while the Swin model misfits another two.
 
 
 
 
+\begin{figure}
+\centering
+\begin{subfigure}{.45\textwidth}
+  \centering
+  \includegraphics[width=1\linewidth]{./images/s_and_t_on_vit.png}
+  \caption{Swin with T2T\textunderscore ViT}
+  \label{fig:sub1}
+\end{subfigure}
 
+
+\begin{subfigure}{.45\textwidth}
+  \centering
+  \includegraphics[width=1\linewidth]{./images/s_and_v_on_vit.png}
+  \caption{Swin with ViT}
+  \label{fig:sub1}
+\end{subfigure}
+
+\begin{subfigure}{.45\textwidth}
+  \centering
+  \includegraphics[width=1\linewidth]{./images/v_and_t_on_vit.png}
+  \caption{ViT with T2T\textunderscore ViT }
+  \label{fig:sub1}
+\end{subfigure}
+
+
+\caption{Correlation between Shapley values computed with different explainers for the ViT surrogate model}
+\label{fig:Pairs Shapley correlation}
+\end{figure}
+
+
+
+
+In Figure \ref{fig:Different explainers metrics}, we computed the accuracy of the surrogate model for different removing patches approaches. The plots are the same as in Figure \ref{fig:Saliency_Explainer_CIFAR} but here we want to see how differ several explainer models. As in Figure \ref{fig:Pairs Shapley correlation}, we can see that the Swin-based explainers gives the worst explanations. Removing of the best patches according to the Swin explainer Shapley values comparatively fast gives accuracy below 97\%. Removing of the worst patches gives accuracy below 40\% only after about 70\% removed patches while for other explainers it is at about 60\%.
+
+
+
+\begin{figure}
+\centering
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=1\linewidth]{./images/s_on_v_metrics.png}
+  \caption{Swin based masking}
+  \label{fig:sub1}
+\end{subfigure}
+
+
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=1\linewidth]{./images/t_on_v_metrics.png}
+  \caption{ViT based masking}
+  \label{fig:sub1}
+\end{subfigure}
+
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=1\linewidth]{./images/v_on_v_metrics.png}
+  \caption{T2T\textunderscore ViT based masking }
+  \label{fig:sub1}
+\end{subfigure}
+
+
+\caption{Accuracy of the ViT surrogate model after removing worst/best patches based on different explainers}
+\label{fig:Different explainers metrics}
+\end{figure}
 
 
 
@@ -946,12 +1011,9 @@ Similarily as for the CIFAR-10 dataset, we checked the relations between the Sha
 
 
 \section{Evaluation of explanations}\label{s:evaluation}
-Whereas in the previous sections we were interested mainly on the model's performance and about how it produced its output, here we focus rather on the explanations themselves. Before, the explanations served us as a tool for checking the models' properties; here we would like to answer whether these explanations are the \textit{true} explanations. Namely, we would like to answer the following question: \textit{Are the features indicated by explanations as important indeed important for the model? Are the features indicated by explanations as not important indeed not important?} These informal questions can be formalized in several ways and many metrics were proposed to evaluate the explanation methods, like monotonicity \cite{DBLP:journals/corr/abs-2007-07584}, max-sensitivity \cite{DBLP:conf/nips/YehHSIR19},
-% faithfulness \cite{DBLP:conf/nips/Alvarez-
-% MelisJ18}
-or ROAD \cite{DBLP:conf/icml/RongLBKK22}.
+Whereas in the previous sections we were interested mainly on the model's performance and about how it produced its output, here we focus rather on the explanations themselves. Before, the explanations served us as a tool for checking the models' properties; here we would like to answer whether these explanations are the \textit{true} explanations. Namely, we would like to answer the following question: \textit{Are the features indicated by explanations as important indeed important for the model? Are the features indicated by explanations as not important indeed not important?} These informal questions can be formalized in several ways and many metrics were proposed to evaluate the explanation methods, like monotonicity \cite{DBLP:journals/corr/abs-2007-07584}, max-sensitivity \cite{DBLP:conf/nips/YehHSIR19}, or ROAD \cite{DBLP:conf/icml/RongLBKK22}.
 
-The Shapley values are well-grounded theoretically, so they can serve as a baseline for other explanation methods, but only for the case of 16 players in which we could compute the Shapley values exactly. For 196 players, we are interested in how the explainer model performs and whether it provides a better explanation than some commonly used methods like integrated gradients or saliency.
+The Shapley values are well-grounded theoretically, so they can serve as a baseline for other explanation methods, but only for the case of 16 players in which we could compute the Shapley values exactly. For 196 players, we are interested in how the explainer model performs and whether it provides a better explanation than some commonly used methods like saliency.
 
 
 
@@ -1040,8 +1102,8 @@ We can build a segmentation model based on Shapley values computed by the explai
 
 \midrule
                 &   ViT         &   0.81    &   0.48  &  0.75  &  0.59  \\
-                &   T2T\textunderscore ViT       &   0.81    &   0.49    & 0.75   &  0.59 \\
-                &   Swin      &   0.80    &   0.49     & 0.77   &  0.59  \\
+                &   T2T\textunderscore ViT       &   0.81    &   0.49    & 0.75   &  0.60 \\
+                &   Swin      &   0.80    &   0.49     & 0.77   &  0.60  \\
 \midrule
 
 \bottomrule
@@ -1121,47 +1183,8 @@ We also visualize the segmentation masks obtained using Shapley values (Figures 
 
 
 
-We move on now to discuss the abovementioned evaluation metrics: monotonicity, max-sensitivity, and ROAD.
+We move on now to discuss the evaluation metrics.
 
-
-\subsection{Monotonicity}
-As in the measuring of a model's performance, evaluation of explanations should answer some meta-level questions which we would like to pose. For the monotonicity metric such a question is \textit{how imprecise would the prediction be if we did not know value of some feature?} \cite{DBLP:journals/corr/abs-2007-07584}. How much the model gets worse after removing a feature? More formally, let $a_1, \ldots, a_n$ be the feature attributions for a function (model) $f$ and $y^* = f(x^*)$ be the value of the model at some point $x^*$. We demand from the feature attribution $a_i$ that it satisfies the following equation:
-\begin{equation} \label{monotonicity_equation}
-    |a_i| \propto  \mathbb{E}\left(\textrm{loss}(y, f_i) | x_{-i}^*\right)  =  \int _{\chi _i} \textrm{loss} \left(y*, f_i(x_i)\right)p(x_i)dx_i ,
-\end{equation}
-where $f_i$ is the restriction of the function $f$ when all the coordinates apart from $x_i$ are fixed, $x^{∗}_{-i} = (x_1, \ldots, x_{i−1}, x_{i+1}, \ldots, x_N)$,
-$\textrm{loss}$ is the loss function of interest and $\chi$ is the domain of $x_i$. The equation \ref{monotonicity_equation} describes mathematically a requirement that the attributions should be proportional to the performance of the model when the feature is removed. Note that this equation tries to omit the out-of-distribution problem: $x_i$ is not fixed or zeroed-out but we take an integral over $x_i$. (However, this leads to another problem that some features cannot in reality occur together, like three-years old child with 2 metres height, and thus some tuples $(x_1, \ldots x_i, \ldots x_N)$ may be unrealistic.)
-
-
-The \textit{monotonicity} is defined as the Spearman's correlation between the feature attributions and expected values from the equation \ref{monotonicity_equation}. More formally,
-
-\begin{defi}
-    The monotonicity for feature attributions $a_i$ is the Spearman’s correlation coefficient $\rho (a, e)$, where $a= \left(|a_1|, \ldots, |a_n|\right)$ is a vector containing the absolute values of the attributions and
-    $e = \left(\mathbb{E}\left(\textup{loss}(y, f_1) | x_{-1}^*\right), \ldots \mathbb{E}\left(\textup{loss}(y, f_n) | x_{-n}^* \right) \right)$
-contains the corresponding (estimated)
-expectations, as computed in Equation \ref{monotonicity_equation}.
-\end{defi}
-
-
-
-
-\subsection{Max-sensitivity}
-Sensitivity can be defined in a general way for a function $\Phi _f : \mathbb{R}^n \rightarrow \mathbb{R}^d$ (here subscript $f$ denotes that the function $\Phi$ depends on a function $f$) as a vector of partial derivatives:
-\begin{equation}
-    \left[ \nabla_{x} \Phi _{f}(x)\right]_j = \textrm{lim}_{\varepsilon \rightarrow 0} 
-    \frac{\Phi _{f} (x + x \textbf{e}_{\textbf{j}} ) - \Phi_{f}(x)}
-    {\varepsilon}.
-\end{equation}
-This equation measures how the function $\Phi _f$ changes as the input is varied infinitesimally.
-In our setup, $\mathbb{R}^n$ is an input space of a model $f$ and $\Phi _f$ is the function which outputs the feature attributions for a given model. Sensitivity is a measure of how the feature attributions change after small changing of the model input. The idea behind this definition is that the attributions should not change much for similar inputs. To get rid of the potentially difficult to evaluate derivative, we can define max-sensitivity as follows:
-\begin{defi}
-    For an explanation function $\Phi _f $, a model $f$,  a given radius $r$, and a point $x$, max-sensitivity for explanation is given as:
-    \begin{equation}
-        \textup{SENS}_{\textup{MAX}} \left(\Phi _f, x, r \right) = \textup{max} _{|y-x| \leq r} \left\| \Phi _f(y) - \Phi _f(x)\right\|.
-    \end{equation}
-\end{defi}
-
-This evaluation technique is tempting because it can be robustly estimated via Monte-Carlo sampling. However, it has two considerable drawbacks. Firstly, it is minimized simply for the constant function $\Phi$. Secondly, it is perhaps not relevant to demand small sensitivity from the feature attribution function. It can be an intrinsic characteristic of the model that it varies significantly for slightly changed inputs, and a good explanation should catch this behavior. Thus, max-sensitivity should rather not be used as the only evaluation method.
 
 
 \subsection{ROAD}
