@@ -16,3 +16,5 @@ rblarba-en.log
 *.run.xml
 *.toc
 *.synctex.gz
+*.blg
+*-blx.bib
