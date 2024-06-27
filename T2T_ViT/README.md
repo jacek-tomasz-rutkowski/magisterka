@@ -1,36 +1,140 @@
+## Setup środowiska
+* Instalujemy conda'ę (można lokalnie tylko dla własnego użytkownika), najlepiej z [conda-forge](https://conda-forge.org/download/)
+* Instalujemy środowisko `CONDA_OVERRIDE_CUDA=12.2 conda env create -f environment.yml -p ./condaenv`
+* Aktywujemy `conda activate ścieżka/do/condaenv`.
+
+## Trenowanie
+* Jeśli mamy wiele kart do wyboru (`nvidia-smi` je pokaże) to wybieramy np. jedną dopisując przed komendą `CUDA_VISIBLE_DEVICES=0 python ...`.
+* Transfer learning: modyfikujemy `lightning_configs/classifier.yaml` i uruchamiamy `python -m lightning_modules.classifier fit --config lightning_configs/classifier.yaml`
+    Można też dopisywać opcje do linii komend po `--config ...yaml`, np. `--data.dataloader_kwargs.batch_size=256 --trainer.max_epochs=40`.
+* Oglądanie wykresów: `tensorboard --logdir=checkpoints/ --port=6056`
+
+## SLURM
+* Uruchomienie jobu: `JOB_ID=$(sbatch job-classifier.sh | awk '{print $NF}')` (ustawiamy w `job-classifier.sh` time limit, konfigurację w `classifier.yaml`).
+* Oglądanie outputu na bieżąco: `tail --follow checkpoints/*/s$JOB_ID/stdout`
+* Oglądanie statusu GPU: `srun --jobid $JOB_ID nvidia-smi` (działa tylko jeśli mamy dostęp do dodatkowych zasobów w kolejce).
+* Ubijanie jobu: `scancel --me --signal=SIGINT $JOB_ID`
+* Anulowanie czekających na alokację job'ów `scancel --me -t PENDING`
+* Działające joby: `squeue --me`
+* Zakończone joby: `sacct  --format=JobID,Start,End,Elapsed,NCPUS,NodeList,NTasks,ExitCode,JobName,User,State`
+* Wznawianie treningu z checkpointu: patrz `job-continue.sh`
+
 ## saved_models/
 Contains checkpoints with model weights that we want to keep:
-- `downloaded/`: downloaded from https://github.com/yitu-opensource/T2T-ViT
-- `transferred/cifar10/`:
-    - `ckpt_0.01_0.0005_97.5.pth`: T2T-ViT, accuracy 97.5% without masks, 68.58% with 196-masks. Trained with something like:
-        `python transfer_learning.py --model t2t_vit_14 --lr 0.05 --b 64 --num-classes 10 --img-size 224 --transfer-learning True --transfer-model saved_models/downloaded/imagenet/81.5_T2T_ViT_14.pth`
-    - `swin_epoch-37_acc-97.34.pth`: Swin Transformer, accuracy 97.34% without masks, 75.53% with 196-masks. Trained with:
-        `python transfer_learning_swin.py ??`
-    - `vit_epoch-47_acc-98.2.pth`: plain ViT, accuracy 98.20% without masks, 75.77% with 196-masks. Trained with:
-        ???
-- `surrogate/cifar10/`:
-  - `v2/`: All trained with: `python -m vit_shapley.modules.surrogate --num_players NNN --lr 0.0001 --wd 0 --b 256 --num_workers 2 --target_model_name X --backbone_name X`
-     - `player196/t2t_vit.ckpt`: test accuracy 98.03% without masks, 91.83% with 196-masks (val/accuracy: 0.924 val/acc_unmasked: 0.985).
-     - `player196/swin.ckpt`:    test accuracy 97.97% without masks, 92.64% with 196-masks (val/accuracy: 0.932 val/acc_unmasked: 0.986).
-     - `player196/vit.ckpt`:     test accuracy 98.71% without masks, 94.05% with 196-masks, 80.92% with 16-masks (val/accuracy: 0.948 val/acc_unmasked: 0.992).
-     - `player16/t2t_vit.ckpt`:  test accuracy 98.30% without masks, 88.74% with 196-masks, 85.38% with 16-masks (val/accuracy: 0.869 val/acc_unmasked: 0.987).
-     - `player16/swin.ckpt`:     test accuracy 98.10% without masks, 91.31% with 196-masks, 86.59% with 16-masks (val/accuracy: 0.866 val/acc_unmasked: 0.985).
-     - `player16/vit.ckpt`:      test accuracy 98.78% without masks, 91.81% with 196-masks, 86.92% with 16-masks (val/accuracy: 0.866 val/acc_unmasked: 0.989).
-  - `_t2t_vit_player16_lr0.0001_wd0.0_b256_epoch19.ckpt`:     accuracy 97.97% without masks, 85.25% with 196-masks.
-  - `_swin_player16_lr0.0001_wd0.0_b256_epoch19.ckpt`:        accuracy 98.05% without masks, 91.54% with 196-masks.
-  - `_vit_player16_lr0.0001_wd0.0_b256_epoch19.ckpt`:         accuracy 98.72% without masks, 90.17% with 196-masks.
-  - `_player16_lr1e-05_wd0.0_b256_epoch28.ckpt`: old T2T-ViT, accuracy 98.29% without masks, 91.49% with 196-masks. Trained with something like:
-        `python -m vit_shapley.modules.surrogate --num_players 196 --lr 0.00001 --wd 0 --b 256 --num_workers 2`
+- `downloaded/` downloaded from https://github.com/yitu-opensource/T2T-ViT
+- `classifier/` trenowane z `python -m lightning_modules.classifier fit --config .../config.yaml`
+    - `cifar10/`
+        - `v4/`
+            - `vit_small_patch16_224`        val accuracy 97.7%. (powinno dać się 98.2%)
+            - `swin_tiny_patch4_window7_224` val accuracy 98.0%.
+            - `t2t_vit_14`                   val accuracy 97.7%.
+    - `gastro/`
+        - `v4/`
+            - `vit_small_patch16_224`        val accuracy 96.3%. (pewnie da się lepiej)
+            - `swin_tiny_patch4_window7_224` val accuracy 98.5%. (powinno dać się 99.2%)
+            - `t2t_vit_14`                   val accuracy 99.0%.
+        - `v5/` uczone na gastro z "cropped"
+            - `vit_small_patch16_224`        val accuracy 90.5%.
+            - `swin_tiny_patch4_window7_224` val accuracy 91.3%.
+            - `t2t_vit_14`                   val accuracy 93.7%.
+- `surrogate`  trenowane z `python -m lightning_modules.surrogate fit --config .../config.yaml`
+    -  `cifar10/`
+        - `v4/`
+            - `player16/`
+                - `vit_small_patch16_224`         val accuracy unmasked 98.2%, 16-masked 85.9%
+                - `swin_tiny_patch4_window7_224`  val accuracy unmasked 98.1%, 16-masked 86.3%
+                - `t2t_vit_14`                    val accuracy unmasked 98.0%, 16-masked 85.5%
+            - `player196/`
+                - `vit_small_patch16_224`         val accuracy unmasked 97.9%, 196-masked 92.6%
+                - `swin_tiny_patch4_window7_224`  val accuracy unmasked 98.0%, 196-masked 92.8%
+                - `t2t_vit_14`                    val accuracy unmasked 97.7%, 196-masked 91.5%
+    - `gastro/`
+        - `v4/`
+            - `player16/`
+                - `vit_small_patch16_224`         val accuracy unmasked 97.2%, 16-masked 90.8%
+                - `swin_tiny_patch4_window7_224`  val accuracy unmasked 99.7%, 16-masked 96.1%
+                - `t2t_vit_14`                    val accuracy unmasked 98.2%, 16-masked 93.3%
+            - `player196/`
+                - `vit_small_patch16_224`         val accuracy unmasked 96.0%, 196-masked 93.7%
+                - `swin_tiny_patch4_window7_224`  val accuracy unmasked 99.0%, 196-masked 98.3%
+                - `t2t_vit_14`                    val accuracy unmasked 98.7%, 196-masked 94.9%
+        - `v5/` uczone na gastro z "cropped"
+            - `player16/`
+                - `vit_small_patch16_224`         val accuracy unmasked 85.7%, 16-masked 92.7%
+                - `swin_tiny_patch4_window7_224`  val accuracy unmasked 93.2%, 16-masked 88.2%
+                - `t2t_vit_14`                    val accuracy unmasked 92.7%, 16-masked 88.0%
+            - `player196/`
+                - `vit_small_patch16_224`         val accuracy unmasked 92.5%, 196-masked 89.2%
+                - `swin_tiny_patch4_window7_224`  val accuracy unmasked 91.8%, 196-masked 89.1%
+                - `t2t_vit_14`                    val accuracy unmasked 93.7%, 196-masked 89.8%
+- `explainer` trenowane z `python -m lightning_modules.explainer fit --config .../config.yaml`
+  -  `cifar10/`
+        - `v4/`
+            - `player16/`
+                - `vit_small_patch16_224`         val-macc-best 63.6%
+                - `swin_tiny_patch4_window7_224`  val-macc-best 63.9%
+                - `t2t_vit_14`                    val-macc-best 61.9%
+            - `player196/`
+                - `vit_small_patch16_224`         val-macc-best 48.7%
+                - `swin_tiny_patch4_window7_224`  val-macc-best 56.5%
+                - `t2t_vit_14`                    val-macc-best 45.2%
+        - `pairs/player16/`: 9 pairs x_on_y meaning backbone x on target surrogate y.
+            - `s_on_s`: 61.5%
+            - `s_on_t`: 67.5%
+            - `s_on_v`: 64.3%
+            - `t_on_s`: 65.3%
+            - `t_on_t`: 67.8%
+            - `t_on_v`: 66.1%
+            - `v_on_s`: 66.7%
+            - `v_on_t`: 69.6%
+            - `v_on_v`: 62.9%
+        - `pairs/player196/`:
+            - `s_on_s`: 57.6%
+            - `s_on_t`: 56.1%
+            - `s_on_v`: 57.7%
+            - `t_on_s`: 57.0%
+            - `t_on_t`: 46.9%
+            - `t_on_v`: 53.4%
+            - `v_on_s`: 56.3%
+            - `v_on_t`: 49.5%
+            - `v_on_v`: 50.5%
 
-- `explainer/cifar10/`:
-    - `v2/`:
-      - `t2t_vit.ckpt`: trained for 402 epochs (17k steps).
-    - `v3/`:
-      trained with `CUDA_VISIBLE_DEVICES=x python -m vit_shapley.modules.explainer --num_players NNN --target_model_name=X --backbone_name=X --lr 0.00005 --acc 4 --divisor=$((NNN/2))`
-      (some with --use_sb=true)
-      - `player196/t2t_vit.ckpt`: 306 epochs, val/macc-best ~50%
-      - `player196/swin.ckpt`:    499 epochs, val/macc-best ~70% (could train for more)
-      - `player196/vit.ckpt`:     211 epochs, val/macc-best ~55%
-      - `player16/t2t_vit.ckpt`: 198 epochs, val/macc-best ~68% (100 epochs would have been fine)
-      - `player16/swin.ckpt`:    499 epochs, val/macc-best ~78%
-      - `player16/vit.ckpt`:     106 epochs, val/macc-best ~70%
+    - `gastro/`
+        - `v4/`
+            - `player16/`
+                - `vit_small_patch16_224`         val-macc-best 62.2%
+                - `swin_tiny_patch4_window7_224`  val-macc-best 87.3% (perhaps because surrogate achieves 99.7%)
+                - `t2t_vit_14`                    val-macc-best 66.9%
+            - `player196/`
+                - `vit_small_patch16_224`         val-macc-best 27.4%
+                - `swin_tiny_patch4_window7_224`  val-macc-best 64.3%
+                - `t2t_vit_14`                    val-macc-best 25.8%
+        - `v5/`
+            - `player16/`
+                - `vit_small_patch16_224`         val-macc-best 59.2%
+                - `swin_tiny_patch4_window7_224`  val-macc-best 59.9%
+                - `t2t_vit_14`                    val-macc-best 64.6%
+            - `player196/`
+                - `vit_small_patch16_224`         val-macc-best 27.8%
+                - `swin_tiny_patch4_window7_224`  val-macc-best 44.2%
+                - `t2t_vit_14`                    val-macc-best 26.8%
+        - `pairs/player16/`: 9 pairs x_on_y meaning backbone x on target surrogate y.
+            - `s_on_s`: 64.1%
+            - `s_on_t`: 63.0%
+            - `s_on_v`: 64.5%
+            - `t_on_s`: 65.9%
+            - `t_on_t`: 62.4%
+            - `t_on_v`: 65.0%
+            - `v_on_s`: 66.0%
+            - `v_on_t`: 63.6%
+            - `v_on_v`: 64.2%
+        - `pairs/player196/`:
+            - `s_on_s`: 47.9%
+            - `s_on_t`: 52.6%
+            - `s_on_v`: 51.3%
+            - `t_on_s`: 46.5%
+            - `t_on_t`: 33.0%
+            - `t_on_v`: 41.9%
+            - `v_on_s`: 42.3%
+            - `v_on_t`: 37.9%
+            - `v_on_v`: 31.2%
