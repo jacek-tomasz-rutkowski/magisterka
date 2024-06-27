@@ -8,3 +8,14 @@ CIFAR_10_data
 T2T_ViT/data
 lightning_logs
 pretrained_models
+*.aux
+*.bbl
+*.bcf
+*.fdb_latexmk
+*.fls
+rblarba-en.log
+*.run.xml
+*.toc
+*.synctex.gz
+*.blg
+*-blx.bib
