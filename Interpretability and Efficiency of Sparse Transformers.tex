@@ -55,6 +55,8 @@
 \addbibresource{bibliography/0007CWYSJTFY21.bib}
 \addbibresource{bibliography/Characterization.bib}
 \addbibresource{bibliography/RozemberczkiWBY22.bib}
+\addbibresource{bibliography/Shapley.bib}
+
 
 
 
@@ -482,7 +484,7 @@ In the first case, we have $2^{16}=65,536$ coalitions. This number is small enou
 
 
 
-At the beginning, we present the performance of surrogate models. Below (Figures \ref{vit_classifier_masks}-\ref{swin_classifier_masks}) are presented the images from the batch of masked CIFAR-10 images with marked predicted classes (green if correct, red for misclassification). One can notice that all three models make mistakes practically only for the completely or almost completely masked images.
+At the beginning, we present the performance of surrogate models. Below (Figures \ref{vit_classifier_masks}) are presented the images from the batch of masked CIFAR-10 images with marked predicted classes (green if correct, red for misclassification) for the ViT model. One can notice that the model makes mistakes practically only for the completely or almost completely masked images.
 
 \begin{figure}[H]
 \centering
@@ -492,25 +494,8 @@ At the beginning, we present the performance of surrogate models. Below (Figures
 \end{figure}
 
 
-\begin{figure}[H]
-\centering
-\includegraphics[scale=0.5]{./images/t2t_vit_classifier_masks.png}
-\caption{T2T\textunderscore ViT after removing features computed by explainer or saliency methodscore vit surrogate model}
-\label{t2t_vit_classifier_masks}
-\end{figure}
 
-
-\begin{figure}[H]
-\centering
-\includegraphics[scale=0.5]{./images/swin_classifier_masks.png}
-\caption{Swin classifier model}
-\label{swin_classifier_masks}
-\end{figure}
-
-
-
-
-In order to see how the performance was improved due to the additional training on the masked data, we can view similar image grids for the vanilla classifier model (Figures \ref{vit_surrogate_masks} - \ref{swin_surrogate_masks}) and a summary of metrics in Table~\ref{t:surrogate_results}. We can see that Swin has the best results on the masked inputs. Note that surrogate models obtain better results than their classifier counterparts on the unmasked images. We may therefore say that masking works as data augmentation.
+In order to see how the performance was improved due to the additional training on the masked data, we can view similar image grids for the ViT surrogate model (Figure \ref{vit_surrogate_masks}) and a summary of metrics for all models in Table~\ref{t:surrogate_results}. We can see that Swin has the best results on the masked inputs. Note that surrogate models obtain better results than their classifier counterparts on the unmasked images. We may therefore say that masking works as data augmentation.
 
 
 \begin{figure}[H]
@@ -519,23 +504,6 @@ In order to see how the performance was improved due to the additional training 
 \caption{ViT surrogate model}
 \label{vit_surrogate_masks}
 \end{figure}
-
-
-\begin{figure}[H]
-\centering
-\includegraphics[scale=0.5]{./images/t2t_vit_surrogate_masks.png}
-\caption{T2T\textunderscore ViT after removing features computed by explainer or saliency methodscore vit surrogate model}
-\label{t2t_vit_surrogate_masks}
-\end{figure}
-
-
-\begin{figure}[H]
-\centering
-\includegraphics[scale=0.5]{./images/swin_surrogate_masks.png}
-\caption{Swin surrogate model}
-\label{swin_surrogate_masks}
-\end{figure}
-
 
 
 \begin{table}[H]
@@ -820,130 +788,6 @@ We can see that the Shapley values computed by the explainer model highly correl
 
 
 
-We performed yet another experiment that highlighted the differences between the architectures of the models. In all the other experiments, we trained the explainer model with the same backbone as the surrogate model. In contrast, here we investigate how the explanations of each one model change if we compute them with different explainers. It turned out that ViT and T2T\textunderscore ViT-based explainer models give similar results, while the Swin model misfits the other two.
-
-
-
-
-\begin{figure}
-\centering
-\begin{subfigure}{.45\textwidth}
-  \centering
-  \includegraphics[width=1\linewidth]{./images/s_and_t_on_vit.png}
-  \caption{Swin with T2T\textunderscore ViT}
-\end{subfigure}
-
-
-\begin{subfigure}{.45\textwidth}
-  \centering
-  \includegraphics[width=1\linewidth]{./images/s_and_v_on_vit.png}
-  \caption{Swin with ViT}
-\end{subfigure}
-
-\begin{subfigure}{.45\textwidth}
-  \centering
-  \includegraphics[width=1\linewidth]{./images/v_and_t_on_vit.png}
-  \caption{ViT with T2T\textunderscore ViT }
-\end{subfigure}
-
-
-\caption{Correlation between Shapley values computed with different explainers for the ViT surrogate model}
-\label{fig:Pairs Shapley correlation}
-\end{figure}
-
-
-
-
-In Figure \ref{fig:Different explainers metrics}, we computed the accuracy of the surrogate model for different removing patches approaches. The plots are the same as in Figure \ref{fig:Saliency_Explainer_CIFAR} but here we want to see how several explainer models differ. As in Figure \ref{fig:Pairs Shapley correlation}, we can see that the Swin-based explainers give the worst explanations. Removing the best patches according to the Swin explainer Shapley values comparatively fast gives accuracy below 97\%. Removing the worst patches gives accuracy below 40\% only after about 70\% removed patches, while for other explainers it is at about 60\%.
-
-
-
-\begin{figure}
-\centering
-\begin{subfigure}{.5\textwidth}
-  \centering
-  \includegraphics[width=1\linewidth]{./images/s_on_v_metrics.png}
-  \caption{Swin based masking}
-\end{subfigure}
-
-
-\begin{subfigure}{.5\textwidth}
-  \centering
-  \includegraphics[width=1\linewidth]{./images/t_on_v_metrics.png}
-  \caption{ViT based masking}
-\end{subfigure}
-
-\begin{subfigure}{.5\textwidth}
-  \centering
-  \includegraphics[width=1\linewidth]{./images/v_on_v_metrics.png}
-  \caption{T2T\textunderscore ViT based masking }
-\end{subfigure}
-
-
-\caption{Accuracy of the ViT surrogate model after removing worst/best patches based on different explainers}
-\label{fig:Different explainers metrics}
-\end{figure}
-
-
-
-We also present the overall results in terms of accuracy after removing 50\% of the best and worst patches according to Shapley values computed by several explainers for a given surrogate model (Tables \ref{t:different_explainers_best_accuracy_cifar}, \ref{t:different_explainers_worst_accuracy_cifar}).
-
-In Table  \ref{t:different_explainers_best_accuracy_cifar} we can see that the Swin surrogate has the biggest accuracy after removing patches, with the best scores for all the explainers. It could mean that the Swin model is the most difficult to explain by computing Shapley values. However, we presume that such results are caused by the Swin architecture, which is more robust to masking due to its shifting mechanism. It is also worthy to note that the Swin-based explainer models manage the worst with indicating the most important patches. It obtains the highest accuracy for each surrogate model. Similarily, in Table  \ref{t:different_explainers_worst_accuracy_cifar} we can see that the Swin tackles worst with finding the worst patches; removing the patches that are worst according to the Swin explainer gives the smallest accuracy. It means that Swin explainer is unable to find the worst patches effectively.
-
-We present only the results for 196 players; the results for 16 players were insignificant; the differences between the accuracy scores were negligible.
-
-
-
-\begin{table}[H]
-\begin{center}
-\caption{Accuracy of surrogates after removing the \textbf{best} patches according to different explainers; CIFAR-10, 196 players.}
-\label{t:different_explainers_best_accuracy_cifar}
-\begin{tabular}{clSSSSS}
-\toprule
-% \multicolumn{2}{c}    {Trained Data}    &
-
-& Surrogate &  {ViT} &   {T2T\textunderscore ViT} & {Swin} & {mean} \\
-
-\midrule
-                &   ViT         &   50.7    &   50.6 & 56.3 & 52.6 \\
-                &   T2T\textunderscore ViT       &  54.3    &  48.7 & 57.3 & 53.4 \\
-                &   Swin      &   59.2    &   57.2 & 58.6  & 58.3 \\
-                &   mean      &   54.7    &   52.2 & 57.4  & 54.8\\
-\midrule
-
-\bottomrule
-\end{tabular}
-\end{center}
-\end{table}
-
-
-
-
-\begin{table}[H]
-\begin{center}
-\caption{Accuracy of surrogates after removing the \textbf{worst} patches according to different explainers; CIFAR-10, 196 players.}
-\label{t:different_explainers_worst_accuracy_cifar}
-\begin{tabular}{clSSSSS}
-\toprule
-% \multicolumn{2}{c}    {Trained Data}    &
-
-& Surrogate &  {ViT} &   {T2T\textunderscore ViT} & {Swin} & {mean} \\
-
-\midrule
-                &   ViT         &   98.4   &   97.9 & 98.0 & 98.1 \\
-                &   T2T\textunderscore ViT       &  98.0    &  98.0 & 98.1 & 98.1 \\
-                &   Swin      &   97.7    &   97.1 & 97.5 & 97.5 \\
-                &   mean      &   98.0    &   97.7 & 97.9  & 97.9\\
-\midrule
-
-\bottomrule
-\end{tabular}
-\end{center}
-\end{table}
-
-
-
-
 
 
 
@@ -1057,61 +901,6 @@ Just like for the CIFAR-10 dataset, we checked the relationships between the Sha
 \midrule
 \bottomrule
 \label{t:shap_gastro_correlations}
-\end{tabular}
-\end{center}
-\end{table}
-
-
-
-
-Finally, we present tables similar to the tables  \ref{t:different_explainers_best_accuracy_cifar} -  \ref{t:different_explainers_worst_accuracy_cifar} to check how different explainers work on different surrogates. As was the case for the CIFAR-10 dataset, we might observe that the Swin explainer model significantly underperforms the other explainers. Swin explainers give the highest accuracy scores in Table \ref{t:different_explainers_best_accuracy_gastro} and the lowest accuracy scores in Table  \ref{t:different_explainers_worst_accuracy_gastro}. We can also note that the accuracy scores in Table \ref{t:different_explainers_best_accuracy_gastro} are significantly lower than for the CIFAR-10 dataset. It is perhaps due to the fact that it is easier to indicate the important features of the polyp than of the truck or car.
-
-
-
-
-
-
-\begin{table}[H]
-\begin{center}
-\caption{Accuracy of surrogates after removing the \textbf{best} patches according to different explainers; HyperKvasir, 196 players.}
-\label{t:different_explainers_best_accuracy_gastro}
-\begin{tabular}{clSSSSS}
-\toprule
-% \multicolumn{2}{c}    {Trained Data}    &
-
-& Surrogate &  {ViT} &   {T2T\textunderscore ViT} & {Swin} & {mean} \\
-
-\midrule
-                &   ViT         &   31.1    &   40.5 & 46.5 & 39.4 \\
-                &   T2T\textunderscore ViT       &  43.7    &  34.5 & 47.6 & 41.9 \\
-                &   Swin      &   52.0    &   52.8 & 47.9  & 50.9 \\
-                &   mean      &   42.3    &   42.6 & 47.3  & 44.1\\
-\midrule
-
-\bottomrule
-\end{tabular}
-\end{center}
-\end{table}
-
-
-\begin{table}[H]
-\begin{center}
-\caption{Accuracy of surrogates after removing the \textbf{worst} patches according to different explainers; HyperKvasir, 196 players.}
-\label{t:different_explainers_worst_accuracy_gastro}
-\begin{tabular}{clSSSSS}
-\toprule
-% \multicolumn{2}{c}    {Trained Data}    &
-
-& Surrogate &  {ViT} &   {T2T\textunderscore ViT} & {Swin} & {mean} \\
-
-\midrule
-                &   ViT         &   99.0    &   99.0 & 98.4 & 98.8 \\
-                &   T2T\textunderscore ViT       &  98.6    &  99.3 & 98.9 & 98.9 \\
-                &   Swin      &   96.8    &   97.1 & 97.5  & 97.1 \\
-                &   mean      &  98.1   &   98.5 & 98.3  & 98.3 \\
-\midrule
-
-\bottomrule
 \end{tabular}
 \end{center}
 \end{table}
@@ -1545,6 +1334,190 @@ On the other hand, the explainer recognizes the important features very precisel
 
 
 
+\section{Explainer pairs}
+
+
+
+We performed yet another experiment that highlighted the differences between the architectures of the models. In all the other experiments, we trained the explainer model with the same backbone as the surrogate model. In contrast, here we investigate how the explanations of each one model change if we compute them with different explainers. 
+
+
+
+\subsection{CIFAR-10}
+For the CIFAR-10 dataset, it turned out that ViT and T2T\textunderscore ViT-based explainer models give similar results, while the Swin model misfits the other two.
+
+
+In Figure \ref{fig:Different explainers metrics}, we computed the accuracy of the surrogate model for different removing patches approaches. The plots are the same as in Figure \ref{fig:Saliency_Explainer_CIFAR} but here we want to see how several explainer models differ. As in Figure \ref{fig:Pairs Shapley correlation}, we can see that the Swin-based explainers give the worst explanations. Removing the best patches according to the Swin explainer Shapley values comparatively fast gives accuracy below 97\%. Removing the worst patches gives accuracy below 40\% only after about 70\% removed patches, while for other explainers it is at about 60\%.
+
+
+\begin{figure}
+\centering
+\begin{subfigure}{.45\textwidth}
+  \centering
+  \includegraphics[width=1\linewidth]{./images/s_and_t_on_vit.png}
+  \caption{Swin with T2T\textunderscore ViT}
+\end{subfigure}
+
+
+\begin{subfigure}{.45\textwidth}
+  \centering
+  \includegraphics[width=1\linewidth]{./images/s_and_v_on_vit.png}
+  \caption{Swin with ViT}
+\end{subfigure}
+
+\begin{subfigure}{.45\textwidth}
+  \centering
+  \includegraphics[width=1\linewidth]{./images/v_and_t_on_vit.png}
+  \caption{ViT with T2T\textunderscore ViT }
+\end{subfigure}
+
+
+\caption{Correlation between Shapley values computed with different explainers for the ViT surrogate model}
+\label{fig:Pairs Shapley correlation}
+\end{figure}
+
+
+
+
+
+
+\begin{figure}
+\centering
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=1\linewidth]{./images/s_on_v_metrics.png}
+  \caption{Swin based masking}
+\end{subfigure}
+
+
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=1\linewidth]{./images/t_on_v_metrics.png}
+  \caption{ViT based masking}
+\end{subfigure}
+
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=1\linewidth]{./images/v_on_v_metrics.png}
+  \caption{T2T\textunderscore ViT based masking }
+\end{subfigure}
+
+
+\caption{Accuracy of the ViT surrogate model after removing worst/best patches based on different explainers}
+\label{fig:Different explainers metrics}
+\end{figure}
+
+
+
+We also present the overall results in terms of accuracy after removing 50\% of the best and worst patches according to Shapley values computed by several explainers for a given surrogate model (Tables \ref{t:different_explainers_best_accuracy_cifar}, \ref{t:different_explainers_worst_accuracy_cifar}).
+
+In Table  \ref{t:different_explainers_best_accuracy_cifar} we can see that the Swin surrogate has the biggest accuracy after removing patches, with the best scores for all the explainers. It could mean that the Swin model is the most difficult to explain by computing Shapley values. However, we presume that such results are caused by the Swin architecture, which is more robust to masking due to its shifting mechanism. It is also worthy to note that the Swin-based explainer models manage the worst with indicating the most important patches. It obtains the highest accuracy for each surrogate model. Similarily, in Table  \ref{t:different_explainers_worst_accuracy_cifar} we can see that the Swin tackles worst with finding the worst patches; removing the patches that are worst according to the Swin explainer gives the smallest accuracy. It means that Swin explainer is unable to find the worst patches effectively.
+
+We present only the results for 196 players; the results for 16 players were insignificant; the differences between the accuracy scores were negligible.
+
+
+
+\begin{table}[H]
+\begin{center}
+\caption{Accuracy of surrogates after removing the \textbf{best} patches according to different explainers; CIFAR-10, 196 players.}
+\label{t:different_explainers_best_accuracy_cifar}
+\begin{tabular}{clSSSSS}
+\toprule
+% \multicolumn{2}{c}    {Trained Data}    &
+
+& Surrogate &  {ViT} &   {T2T\textunderscore ViT} & {Swin} & {mean} \\
+
+\midrule
+                &   ViT         &   50.7    &   50.6 & 56.3 & 52.6 \\
+                &   T2T\textunderscore ViT       &  54.3    &  48.7 & 57.3 & 53.4 \\
+                &   Swin      &   59.2    &   57.2 & 58.6  & 58.3 \\
+                &   mean      &   54.7    &   52.2 & 57.4  & 54.8\\
+\midrule
+
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
+
+
+
+
+\begin{table}[H]
+\begin{center}
+\caption{Accuracy of surrogates after removing the \textbf{worst} patches according to different explainers; CIFAR-10, 196 players.}
+\label{t:different_explainers_worst_accuracy_cifar}
+\begin{tabular}{clSSSSS}
+\toprule
+% \multicolumn{2}{c}    {Trained Data}    &
+
+& Surrogate &  {ViT} &   {T2T\textunderscore ViT} & {Swin} & {mean} \\
+
+\midrule
+                &   ViT         &   98.4   &   97.9 & 98.0 & 98.1 \\
+                &   T2T\textunderscore ViT       &  98.0    &  98.0 & 98.1 & 98.1 \\
+                &   Swin      &   97.7    &   97.1 & 97.5 & 97.5 \\
+                &   mean      &   98.0    &   97.7 & 97.9  & 97.9\\
+\midrule
+
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
+
+
+
+
+\subsection{HyperKvasir}
+In this section, we present tables similar to the tables  \ref{t:different_explainers_best_accuracy_cifar} -  \ref{t:different_explainers_worst_accuracy_cifar} to check how different explainers work on different surrogates for the HyperKvasir dataset. As was the case for the CIFAR-10 dataset, we might observe that the Swin explainer model significantly underperforms the other explainers. Swin explainers give the highest accuracy scores in Table \ref{t:different_explainers_best_accuracy_gastro} and the lowest accuracy scores in Table  \ref{t:different_explainers_worst_accuracy_gastro}. We can also note that the accuracy scores in Table \ref{t:different_explainers_best_accuracy_gastro} are significantly lower than for the CIFAR-10 dataset. It is perhaps due to the fact that it is easier to indicate the important features of the polyp than of the truck or car, and they are less diffused. Removing these features causes the surrogate to not succeed in polyp detection.
+
+
+
+
+
+
+\begin{table}[H]
+\begin{center}
+\caption{Accuracy of surrogates after removing the \textbf{best} patches according to different explainers; HyperKvasir, 196 players.}
+\label{t:different_explainers_best_accuracy_gastro}
+\begin{tabular}{clSSSSS}
+\toprule
+% \multicolumn{2}{c}    {Trained Data}    &
+
+& Surrogate &  {ViT} &   {T2T\textunderscore ViT} & {Swin} & {mean} \\
+
+\midrule
+                &   ViT         &   31.1    &   40.5 & 46.5 & 39.4 \\
+                &   T2T\textunderscore ViT       &  43.7    &  34.5 & 47.6 & 41.9 \\
+                &   Swin      &   52.0    &   52.8 & 47.9  & 50.9 \\
+                &   mean      &   42.3    &   42.6 & 47.3  & 44.1\\
+\midrule
+
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
+
+
+\begin{table}[H]
+\begin{center}
+\caption{Accuracy of surrogates after removing the \textbf{worst} patches according to different explainers; HyperKvasir, 196 players.}
+\label{t:different_explainers_worst_accuracy_gastro}
+\begin{tabular}{clSSSSS}
+\toprule
+% \multicolumn{2}{c}    {Trained Data}    &
+
+& Surrogate &  {ViT} &   {T2T\textunderscore ViT} & {Swin} & {mean} \\
+
+\midrule
+                &   ViT         &   99.0    &   99.0 & 98.4 & 98.8 \\
+                &   T2T\textunderscore ViT       &  98.6    &  99.3 & 98.9 & 98.9 \\
+                &   Swin      &   96.8    &   97.1 & 97.5  & 97.1 \\
+                &   mean      &  98.1   &   98.5 & 98.3  & 98.3 \\
+\midrule
+
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
 
 
 
@@ -1557,6 +1530,16 @@ On the other hand, the explainer recognizes the important features very precisel
 
 
 
+\chapter*{Conclusions}
+\addcontentsline{toc}{chapter}{Conclusions}
+In this master's thesis, we performed research related to both Computer Vision and Explainable Machine Learning branches of Machine Learning. On the one hand, we were interested in the models' architectures and tried to indicate the differences between them. On the other hand, we analyzed the models' explanations. Since we used the explainer model, a neural network-based explanation method, it was of interest to measure its performance. To that end, we provided a custom method of evaluating explanations.
+
+
+We took into consideration two sparse transformers: Swin and T2T\textunderscore ViT, and a standard Vision Transformer. 
+We verified that the Swin model is the least interpretable. The special patterns designed in Swin to reduce the qudratic complexity of the self-attention mechanism intermingled in some way the pixels on the image. The output is produced by a mix of information from the pixels, and at the end, it was hard to find out which parts of the image influenced the prediction the most.
+
+
+As for the explanations, we checked that the explainer model correctly computes the Shapley values (when the ground truth is affordable to compute) and that it gives satisfactory results in terms of the evaluation of explanation methods. Additionally, we noticed that the explainer yields, as a byproduct, a segmentation of the image. We may construct a segmentation mask for a given class based on the outputs of the explainer and a chosen threshold. This method of constructing segmentation masks seems promising as it does not require any ground truth. Another promising method is the surrogate model used to omit the out-of-distribution problem, which inevitably occurs during Shapley values computation. Future work may take advantage of this method together with the explainer model in other domains, like Natural Language Processing.
 
 
 
